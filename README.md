@@ -8,6 +8,9 @@ dell'iPhone come una vera app, si apre a tutto schermo e funziona
 anche senza rete, mostrando l'ultima previsione scaricata e
 dichiarando quanto è vecchia.
 
+Lo sfondo **è** il meteo: il cielo cambia con la condizione e con
+l'ora, così si capisce che tempo fa prima ancora di leggere.
+
 ## Come funziona
 
 **Il verdetto sull'abbigliamento** non guarda la temperatura media
@@ -30,6 +33,27 @@ cosa può e non può fare: risponde bene a *"nella prossima ora
 piove?"*, **non è un radar** e non è affidabile sul minuto esatto.
 Quando il modello non prevede acqua ma la probabilità oraria resta
 alta (rovesci sparsi) l'app lo dichiara invece di promettere sereno.
+
+## L'aspetto
+
+Dodici cieli — notte serena e nuvolosa, alba, tramonto, sereno,
+poco nuvoloso, coperto, nebbia, pioggia di giorno e di notte,
+temporale, neve — costruiti come gradienti a tre stop. Il passaggio
+da uno all'altro è una dissolvenza di quasi un secondo, ottenuta
+registrando i colori come proprietà tipizzate (`@property`): senza
+quello i gradienti scatterebbero di colpo. La barra di stato di iOS
+si intona al colore del cielo in cima.
+
+Sopra ogni cielo passa un velo scuro graduato, più forte sui cieli
+chiari, che tiene il testo bianco leggibile ovunque; a cielo sereno
+di notte si accendono le stelle, quando piove scendono gocce,
+quando nevica fiocchi — animazioni in solo CSS che si fermano da sé
+se il sistema chiede meno movimento.
+
+Il carattere è **Manrope** (licenza SIL Open Font, in `fonts/`,
+24 kB per il subset latino): peso 200 per le temperature grandi,
+700 per il verdetto. È incluso nel repository, quindi la resa non
+cambia offline né dipende da servizi esterni.
 
 ## I dati
 
@@ -90,7 +114,8 @@ passaggio a "domani" dopo il tramonto.
 | File | Cosa contiene |
 |---|---|
 | `index.html` | struttura della pagina e libreria di icone SVG |
-| `styles.css` | temi chiaro e scuro, entrambi ad alto contrasto |
+| `styles.css` | i dodici cieli, gli effetti e tutta l'impaginazione |
+| `fonts/` | Manrope variabile e la sua licenza |
 | `app.js` | dati, logica del verdetto, nowcast, rendering |
 | `sw.js` | funzionamento offline (rete per prima, cache di scorta) |
 | `manifest.webmanifest` | nome, icone e modalità a tutto schermo |
@@ -108,6 +133,10 @@ Le manopole stanno tutte in cima ad `app.js`, nella sezione
 - `GUST_WINDY` — la raffica oltre cui l'ombrello è controproducente.
 - `SWING_LAYERED` — l'escursione che fa scattare il consiglio "a cipolla".
 - `CHILL_STEP` — quanto pesa ogni tacca del cursore.
+
+I cieli si cambiano in `styles.css`, nel blocco *i dodici cieli*:
+ogni riga è una scena con tre colori e l'intensità del velo. Quale
+scena mostrare lo decide `skyScene()` in `app.js`.
 
 Dopo aver modificato i file, ricaricando la pagina vedi subito il
 risultato: il service worker prova sempre la rete per prima.

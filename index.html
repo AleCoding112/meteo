@@ -1,75 +1,67 @@
 <!doctype html>
-<html lang="it">
+<html lang="it" data-scene="night-clear">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Meteo</title>
 <meta name="description" content="Il meteo che risponde: come mi vesto e quando piove.">
-<meta name="theme-color" content="#0d1220" media="(prefers-color-scheme: dark)">
-<meta name="theme-color" content="#f2f5fa" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#05070f" id="theme-color">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="Meteo">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <link rel="manifest" href="./manifest.webmanifest">
 <link rel="apple-touch-icon" href="./icons/apple-touch-icon.png">
 <link rel="icon" href="./icons/icon-192.png">
+<link rel="preload" href="./fonts/manrope-var.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="./styles.css">
 </head>
 <body>
+
+<!-- il cielo: gradiente che cambia con condizione e ora -->
+<div class="sky" aria-hidden="true"></div>
+<div class="fx" aria-hidden="true"><span></span><span></span></div>
 
 <!-- ============ libreria icone ============ -->
 <svg width="0" height="0" style="position:absolute" aria-hidden="true">
   <defs>
     <symbol id="i-sun" viewBox="0 0 32 32">
-      <circle cx="16" cy="16" r="6.5" class="s-sun"/>
-      <g class="s-sun" stroke-width="2.2" stroke-linecap="round" fill="none" stroke="currentColor">
-        <path d="M16 3v3.2M16 25.8V29M3 16h3.2M25.8 16H29M6.8 6.8l2.3 2.3M22.9 22.9l2.3 2.3M25.2 6.8l-2.3 2.3M9.1 22.9l-2.3 2.3"/>
-      </g>
+      <circle cx="16" cy="16" r="6.4" class="s-sun"/>
+      <g class="s-sun-ray"><path d="M16 2.6v3.4M16 26v3.4M2.6 16h3.4M26 16h3.4M6.6 6.6l2.4 2.4M23 23l2.4 2.4M25.4 6.6L23 9M9 23l-2.4 2.4"/></g>
     </symbol>
     <symbol id="i-moon" viewBox="0 0 32 32">
       <path class="s-moon" d="M23.5 20.4A9.6 9.6 0 0 1 12.2 8.2a1 1 0 0 0-1.4-1.2 11.3 11.3 0 1 0 14.1 14.7 1 1 0 0 0-1.4-1.3z"/>
     </symbol>
     <symbol id="i-cloud-sun" viewBox="0 0 32 32">
-      <circle cx="11.5" cy="11" r="4.6" class="s-sun"/>
-      <g class="s-sun" stroke-width="2" stroke-linecap="round" fill="none" stroke="currentColor">
-        <path d="M11.5 2.2v2.2M2.6 11h2.2M4.9 4.4l1.6 1.6M18 4.4l-1.6 1.6"/>
-      </g>
-      <path class="s-cloud" d="M12.6 27.5a6.2 6.2 0 0 1-.6-12.4 8 8 0 0 1 15 2.2 5.1 5.1 0 0 1-1 10.2z"/>
+      <circle cx="11.6" cy="10.6" r="4.6" class="s-sun"/>
+      <g class="s-sun-ray" style="stroke-width:1.9"><path d="M11.6 2.4v2.4M2.6 10.6h2.4M4.7 3.7l1.7 1.7M18.5 3.7l-1.7 1.7"/></g>
+      <path class="s-cloud" d="M12.6 27.6a6.3 6.3 0 0 1-.6-12.5 8.1 8.1 0 0 1 15.2 2.2 5.2 5.2 0 0 1-1 10.3z"/>
     </symbol>
     <symbol id="i-cloud-moon" viewBox="0 0 32 32">
-      <path class="s-moon" d="M17.6 12.4A6.8 6.8 0 0 1 10 3.7a.7.7 0 0 0-1-.8 8 8 0 1 0 9.6 10.4.7.7 0 0 0-1-.9z"/>
-      <path class="s-cloud" d="M12.6 27.5a6.2 6.2 0 0 1-.6-12.4 8 8 0 0 1 15 2.2 5.1 5.1 0 0 1-1 10.2z"/>
+      <path class="s-moon" d="M17.8 12.2A6.9 6.9 0 0 1 10.1 3.4a.7.7 0 0 0-1-.8 8.1 8.1 0 1 0 9.7 10.5.7.7 0 0 0-1-.9z"/>
+      <path class="s-cloud" d="M12.6 27.6a6.3 6.3 0 0 1-.6-12.5 8.1 8.1 0 0 1 15.2 2.2 5.2 5.2 0 0 1-1 10.3z"/>
     </symbol>
     <symbol id="i-cloud" viewBox="0 0 32 32">
-      <path class="s-cloud" d="M10.5 26.5a6.8 6.8 0 0 1-.7-13.6 8.8 8.8 0 0 1 16.5 2.4 5.6 5.6 0 0 1-1.1 11.2z"/>
+      <path class="s-cloud" d="M10.4 26.6a6.9 6.9 0 0 1-.7-13.8 8.9 8.9 0 0 1 16.7 2.4 5.7 5.7 0 0 1-1.1 11.4z"/>
     </symbol>
     <symbol id="i-fog" viewBox="0 0 32 32">
-      <path class="s-cloud" d="M10.5 20.5a6.5 6.5 0 0 1-.7-13 8.4 8.4 0 0 1 15.8 2.3 5.4 5.4 0 0 1-1 10.7z"/>
-      <g class="s-fog" stroke-width="2.2" stroke-linecap="round" stroke="currentColor" fill="none">
-        <path d="M6 24.5h20M9 29h14"/>
-      </g>
+      <path class="s-cloud" d="M10.4 20.4a6.6 6.6 0 0 1-.7-13.2 8.5 8.5 0 0 1 16 2.3 5.5 5.5 0 0 1-1.1 10.9z"/>
+      <g class="s-line" style="opacity:.75"><path d="M5.5 24.6h21M9 29h14"/></g>
     </symbol>
     <symbol id="i-drizzle" viewBox="0 0 32 32">
-      <path class="s-cloud" d="M10.5 20.5a6.5 6.5 0 0 1-.7-13 8.4 8.4 0 0 1 15.8 2.3 5.4 5.4 0 0 1-1 10.7z"/>
-      <g class="s-rain" stroke-width="2.2" stroke-linecap="round" stroke="currentColor" fill="none">
-        <path d="M12 24.5l-1 3M20 24.5l-1 3"/>
-      </g>
+      <path class="s-cloud" d="M10.4 20.4a6.6 6.6 0 0 1-.7-13.2 8.5 8.5 0 0 1 16 2.3 5.5 5.5 0 0 1-1.1 10.9z"/>
+      <g class="s-line"><path d="M12.4 24.4l-1.2 3.4M20 24.4l-1.2 3.4"/></g>
     </symbol>
     <symbol id="i-rain" viewBox="0 0 32 32">
-      <path class="s-cloud" d="M10.5 20.5a6.5 6.5 0 0 1-.7-13 8.4 8.4 0 0 1 15.8 2.3 5.4 5.4 0 0 1-1 10.7z"/>
-      <g class="s-rain" stroke-width="2.4" stroke-linecap="round" stroke="currentColor" fill="none">
-        <path d="M10.5 24l-1.6 5M17 24l-1.6 5M23.5 24l-1.6 5"/>
-      </g>
+      <path class="s-cloud" d="M10.4 20.4a6.6 6.6 0 0 1-.7-13.2 8.5 8.5 0 0 1 16 2.3 5.5 5.5 0 0 1-1.1 10.9z"/>
+      <g class="s-line"><path d="M10.6 24l-1.8 5.4M17 24l-1.8 5.4M23.4 24l-1.8 5.4"/></g>
     </symbol>
     <symbol id="i-snow" viewBox="0 0 32 32">
-      <path class="s-cloud" d="M10.5 20.5a6.5 6.5 0 0 1-.7-13 8.4 8.4 0 0 1 15.8 2.3 5.4 5.4 0 0 1-1 10.7z"/>
-      <g class="s-snow" stroke-width="2" stroke-linecap="round" stroke="currentColor" fill="none">
-        <path d="M11 26h0M16 28.5h0M21 26h0M11 29.5h0M21 29.5h0"/>
-      </g>
+      <path class="s-cloud" d="M10.4 20.4a6.6 6.6 0 0 1-.7-13.2 8.5 8.5 0 0 1 16 2.3 5.5 5.5 0 0 1-1.1 10.9z"/>
+      <g class="s-flake"><circle cx="11" cy="25.6" r="1.5"/><circle cx="16" cy="29" r="1.5"/><circle cx="21" cy="25.6" r="1.5"/></g>
     </symbol>
     <symbol id="i-thunder" viewBox="0 0 32 32">
-      <path class="s-cloud" d="M10.5 20.5a6.5 6.5 0 0 1-.7-13 8.4 8.4 0 0 1 15.8 2.3 5.4 5.4 0 0 1-1 10.7z"/>
-      <path class="s-bolt" d="M17.8 22h-4.2l-2.1 5.4h3l-1.4 4.3 6.4-6.6h-3.3z"/>
+      <path class="s-cloud" d="M10.4 20.4a6.6 6.6 0 0 1-.7-13.2 8.5 8.5 0 0 1 16 2.3 5.5 5.5 0 0 1-1.1 10.9z"/>
+      <path class="s-bolt" d="M18.2 22h-4.6l-2.2 5.6h3.2l-1.5 4.4 6.8-6.8h-3.5z"/>
     </symbol>
     <symbol id="i-gear" viewBox="0 0 24 24">
       <path fill="currentColor" d="M12 15.5A3.5 3.5 0 1 1 15.5 12 3.5 3.5 0 0 1 12 15.5zm7.4-2.6a7.6 7.6 0 0 0 0-1.8l2-1.5a.5.5 0 0 0 .1-.6l-1.9-3.3a.5.5 0 0 0-.6-.2l-2.3.9a7.3 7.3 0 0 0-1.6-.9l-.3-2.4a.5.5 0 0 0-.5-.4h-3.8a.5.5 0 0 0-.5.4l-.3 2.4a7.3 7.3 0 0 0-1.6.9l-2.3-.9a.5.5 0 0 0-.6.2L3.4 9a.5.5 0 0 0 .1.6l2 1.5a7.6 7.6 0 0 0 0 1.8l-2 1.5a.5.5 0 0 0-.1.6l1.9 3.3a.5.5 0 0 0 .6.2l2.3-.9a7.3 7.3 0 0 0 1.6.9l.3 2.4a.5.5 0 0 0 .5.4h3.8a.5.5 0 0 0 .5-.4l.3-2.4a7.3 7.3 0 0 0 1.6-.9l2.3.9a.5.5 0 0 0 .6-.2l1.9-3.3a.5.5 0 0 0-.1-.6z"/>
@@ -77,57 +69,52 @@
   </defs>
 </svg>
 
-<!-- ============ barra località ============ -->
-<header class="topbar">
+<header class="bar">
   <nav class="places" id="places" aria-label="Località"></nav>
-  <button class="icon-btn" id="btn-settings" aria-label="Impostazioni">
-    <svg class="gear" aria-hidden="true"><use href="#i-gear"/></svg>
+  <button class="gear" id="btn-settings" aria-label="Impostazioni">
+    <svg aria-hidden="true"><use href="#i-gear"/></svg>
   </button>
 </header>
 
 <main id="main">
 
-  <!-- verdetto -->
-  <section class="hero" id="hero" hidden>
-    <p class="hero-window" id="hero-window"></p>
+  <!-- prima schermata: il verdetto e la pioggia -->
+  <section class="stage" id="hero" hidden>
+    <p class="when" id="hero-window"></p>
     <h1 class="verdict" id="verdict"></h1>
-    <p class="verdict-note" id="verdict-note"></p>
-    <div class="now">
-      <svg class="now-icon" id="now-icon" aria-hidden="true"><use href="#i-sun"/></svg>
-      <div class="now-temp"><span id="now-temp">–</span><span class="deg">°</span></div>
-      <div class="now-meta">
+    <p class="note" id="verdict-note"></p>
+
+    <div class="reading">
+      <span class="temp" id="now-temp">–</span><span class="unit">°</span>
+      <span class="reading-sub">
         <span id="now-feels"></span>
         <span id="now-range"></span>
-      </div>
+      </span>
+      <svg class="now-ico" id="now-icon" aria-hidden="true"><use href="#i-sun"/></svg>
+    </div>
+
+    <div class="facts" id="facts"></div>
+
+    <div class="rain" id="rain-card">
+      <p class="rain-text" id="rain-verdict"></p>
+      <div class="rain-chart" id="rain-chart" aria-hidden="true"></div>
+      <div class="rain-axis" id="rain-axis"></div>
+      <span class="rain-window" id="rain-window"></span>
     </div>
   </section>
 
-  <!-- nowcast pioggia -->
-  <section class="card" id="rain-card" hidden>
-    <div class="card-head">
-      <h2>Pioggia</h2>
-      <span class="card-sub" id="rain-window">prossime 3 ore</span>
-    </div>
-    <p class="rain-verdict" id="rain-verdict"></p>
-    <div class="rain-chart" id="rain-chart" aria-hidden="true"></div>
-    <div class="rain-axis" id="rain-axis"></div>
-  </section>
-
-  <!-- ore -->
-  <section class="card" id="hours-card" hidden>
-    <div class="card-head"><h2>Ore</h2><span class="card-sub">prossime 24</span></div>
+  <section class="band" id="hours-card" hidden>
+    <h2>Prossime 24 ore</h2>
     <div class="hours" id="hours"></div>
   </section>
 
-  <!-- giorni -->
-  <section class="card" id="days-card" hidden>
-    <div class="card-head"><h2>Giorni</h2></div>
+  <section class="band" id="days-card" hidden>
+    <h2>Sette giorni</h2>
     <div class="days" id="days"></div>
   </section>
 
   <p class="stamp" id="stamp"></p>
 
-  <!-- stati -->
   <div class="state" id="state-empty" hidden>
     <h2>Nessuna località</h2>
     <p>Aggiungi i posti che ti interessano: casa, lavoro, dove vai nel fine settimana.</p>
@@ -141,7 +128,6 @@
   </div>
 </main>
 
-<!-- ============ impostazioni ============ -->
 <div class="sheet-backdrop" id="sheet-backdrop" hidden></div>
 <aside class="sheet" id="sheet" hidden aria-label="Impostazioni">
   <div class="sheet-head">

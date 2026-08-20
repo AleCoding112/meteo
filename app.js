@@ -3,7 +3,7 @@
    Dati: Open-Meteo (nessuna chiave, nessun account).
    ============================================================ */
 
-const VERSION = '1.0.0';
+const VERSION = '2.0.0';
 const API      = 'https://api.open-meteo.com/v1/forecast';
 const GEOCODE  = 'https://geocoding-api.open-meteo.com/v1/search';
 
@@ -308,6 +308,48 @@ function rainNow(data) {
   };
 }
 
+/* ---------- 7b. Il cielo -----------------------------------
+   La scena di sfondo traduce condizione e ora in un colore:
+   si capisce che tempo fa prima ancora di leggere. Alba e
+   tramonto vincono sul sereno o nuvoloso, ma non su pioggia,
+   neve e temporale — quelli restano l'informazione dominante. */
+
+const NEAR_HORIZON = 50 * 60000;   // quanto dura il "momento d'oro"
+
+function skyScene(data) {
+  const cur = data.current || {};
+  const code = cur.weather_code ?? 0;
+  const isDay = cur.is_day ?? 1;
+  const now = nowTs(data);
+  const d = data.daily;
+
+  let near = null;
+  if (d && d.sunrise) {
+    for (let i = 0; i < Math.min(2, d.sunrise.length); i++) {
+      if (Math.abs(now - tsOf(d.sunrise[i])) < NEAR_HORIZON) near = 'dawn';
+      if (Math.abs(now - tsOf(d.sunset[i]))  < NEAR_HORIZON) near = 'dusk';
+    }
+  }
+
+  if (isStormCode(code)) return 'storm';
+  if (isSnowCode(code))  return 'snow';
+  if (code >= 51)        return isDay ? 'rain-day' : 'rain-night';
+  if (code === 45 || code === 48) return 'fog';
+  if (near) return near;
+  if (code === 3) return isDay ? 'overcast'  : 'night-cloud';
+  if (code === 2) return isDay ? 'day-cloud' : 'night-cloud';
+  return isDay ? 'day-clear' : 'night-clear';
+}
+
+function applyScene(name) {
+  const root = document.documentElement;
+  if (root.dataset.scene === name) return;
+  root.dataset.scene = name;
+  /* la barra di stato di iOS si intona al cielo */
+  const top = getComputedStyle(root).getPropertyValue('--sky-1').trim();
+  if (top) document.getElementById('theme-color').setAttribute('content', top);
+}
+
 /* ---------- 8. Rendering ----------------------------------- */
 
 const $ = id => document.getElementById(id);
@@ -329,7 +371,7 @@ const icon = (name, cls) => {
 
 function showState(which, msg) {
   ['state-loading', 'state-empty', 'state-error'].forEach(id => { $(id).hidden = id !== which; });
-  ['hero', 'rain-card', 'hours-card', 'days-card'].forEach(id => { $(id).hidden = which !== null; });
+  ['hero', 'hours-card', 'days-card'].forEach(id => { $(id).hidden = which !== null; });
   $('stamp').hidden = which !== null;
   if (msg) $('error-msg').textContent = msg;
 }
@@ -347,8 +389,11 @@ function renderPlaces() {
   if (active) active.scrollIntoView({ inline: 'nearest', block: 'nearest' });
 }
 
+let lastPlaceId = null;
+
 function renderAll(data, cachedAt) {
   const chill = store.chill;
+  applyScene(skyScene(data));
   const advice = dressAdvice(data, chill);
   const cur = data.current;
 
@@ -363,19 +408,43 @@ function renderAll(data, cachedAt) {
   /* condizione attuale */
   const [ic] = wmo(cur.weather_code, cur.is_day);
   const nowIco = $('now-icon');
-  nowIco.replaceWith(Object.assign(icon(ic, 'now-icon'), { id: 'now-icon' }));
+  nowIco.replaceWith(Object.assign(icon(ic, 'now-ico'), { id: 'now-icon' }));
   $('now-temp').textContent = Math.round(cur.temperature_2m);
   $('now-feels').textContent = 'percepiti ' + Math.round(cur.apparent_temperature) + '°';
   const di = advice ? advice.window.dayIndex : 0;
   $('now-range').textContent =
-    `${advice && advice.window.tomorrow ? 'domani ' : ''}min ${Math.round(data.daily.temperature_2m_min[di])}° · max ${Math.round(data.daily.temperature_2m_max[di])}°`;
+    `min ${Math.round(data.daily.temperature_2m_min[di])}° · max ${Math.round(data.daily.temperature_2m_max[di])}°`;
+
+  /* i quattro dettagli */
+  const facts = $('facts');
+  facts.textContent = '';
+  const d0 = data.daily, wi = advice ? advice.window : null;
+  const di2 = wi ? wi.dayIndex : 0;
+  const nowMs = nowTs(data);
+  const sunUp = wi && !wi.tomorrow && nowMs < tsOf(d0.sunset[0]);
+  const rows = [
+    ['Vento', Math.round(cur.wind_speed_10m) + ' <small>km/h</small>'],
+    ['Raffiche', Math.round(cur.wind_gusts_10m ?? 0) + ' <small>km/h</small>'],
+    ['Umidità', Math.round(cur.relative_humidity_2m ?? 0) + '<small>%</small>'],
+    sunUp
+      ? ['Tramonto', hhmm(d0.sunset[0])]
+      : ['Alba', hhmm(d0.sunrise[Math.min(di2, d0.sunrise.length - 1)])],
+  ];
+  rows.forEach(([k, v]) => {
+    const cell = el('div', 'fact');
+    cell.appendChild(el('span', 'fact-k', k));
+    const val = el('div', 'fact-v');
+    val.innerHTML = v;
+    cell.appendChild(val);
+    facts.appendChild(cell);
+  });
 
   /* pioggia */
   const rain = rainNow(data);
   $('rain-card').hidden = !rain;
   if (rain) {
     $('rain-verdict').textContent = rain.text;
-    $('rain-verdict').className = 'rain-verdict' + (rain.dry && !rain.soft ? ' dry' : '');
+    $('rain-verdict').className = 'rain-text' + (rain.dry && !rain.soft ? ' dry' : '');
     const chart = $('rain-chart');
     chart.className = 'rain-chart' + (rain.dry ? ' flat' : '');
     chart.textContent = '';
@@ -392,7 +461,6 @@ function renderAll(data, cachedAt) {
     ax.appendChild(el('span', null, 'ora'));
     ax.appendChild(el('span', null, hhmm(rain.pts[Math.floor(rain.pts.length / 2)].iso)));
     ax.appendChild(el('span', null, hhmm(rain.pts[rain.pts.length - 1].iso)));
-    $('rain-window').textContent = 'prossime ' + (rain.pts.length * 15 / 60).toFixed(0) + ' ore';
   }
 
   /* ore */
@@ -441,6 +509,15 @@ function renderAll(data, cachedAt) {
     ? 'aggiornato ora'
     : 'aggiornato ' + (ageMin < 60 ? ageMin + ' min fa' : Math.round(ageMin / 60) + ' h fa');
   stamp.className = 'stamp' + (ageMin > 90 ? ' stale' : '');
+
+  const place = store.places[store.active];
+  if (place && place.id !== lastPlaceId) {
+    lastPlaceId = place.id;
+    const stage = $('hero');
+    stage.classList.remove('enter');
+    void stage.offsetWidth;          // forza il riavvio dell'animazione
+    stage.classList.add('enter');
+  }
 
   showState(null);
 }

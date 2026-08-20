@@ -17,19 +17,23 @@ const PUFFS = [
 ];
 const BASE = { x0: .30, x1: .585, y0: .565, y1: .748 };
 
-const C_SUN   = [255, 194,  51];
-const C_CLOUD = [233, 240, 250];
-const C_BG_A  = [ 30,  46,  82];
-const C_BG_B  = [ 11,  16,  30];
+const C_SUN   = [255, 210, 125];
+const C_CLOUD = [242, 247, 255];
+/* gli stessi tre stop della scena "tramonto" usata nell'app */
+const C_BG_A  = [ 15,  24,  58];
+const C_BG_M  = [101,  61, 115];
+const C_BG_B  = [224, 119,  80];
 
 const inCircle = (x, y, c) => (x - c.x) ** 2 + (y - c.y) ** 2 <= c.r * c.r;
 const inCloud = (x, y) =>
   PUFFS.some(p => inCircle(x, y, p)) ||
   (x >= BASE.x0 && x <= BASE.x1 && y >= BASE.y0 && y <= BASE.y1);
 
+const lerp = (a, b, t) => a.map((v, i) => Math.round(v + (b[i] - v) * t));
+
 function shade(x, y) {
-  const t = Math.min(1, Math.max(0, (x + y) / 2));
-  const bg = C_BG_A.map((a, i) => Math.round(a + (C_BG_B[i] - a) * t));
+  const t = Math.min(1, Math.max(0, y * .92 + x * .08));
+  const bg = t < .5 ? lerp(C_BG_A, C_BG_M, t * 2) : lerp(C_BG_M, C_BG_B, (t - .5) * 2);
   if (inCloud(x, y)) return C_CLOUD;
   if (inCircle(x, y, SUN)) return C_SUN;
   return bg;

@@ -3,7 +3,7 @@
    quelle le conserva l'app in localStorage, così sa dirti quanto
    sono vecchie invece di spacciarle per fresche. */
 
-const CACHE = 'meteo-v1';
+const CACHE = 'meteo-v2';
 const SHELL = [
   './',
   './index.html',
@@ -13,6 +13,7 @@ const SHELL = [
   './icons/icon-192.png',
   './icons/icon-512.png',
   './icons/apple-touch-icon.png',
+  './fonts/manrope-var.woff2',
 ];
 
 self.addEventListener('install', e => {

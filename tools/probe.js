@@ -83,6 +83,13 @@ async function main() {
   await send('Page.navigate', { url: URL_BASE + page });
   await sleep(+(process.env.WAIT || 6500));
 
+  /* un gesto da compiere prima di misurare, es. aprire un giorno:
+     ACTION="document.querySelectorAll('.day')[2].click()" */
+  if (process.env.ACTION) {
+    await send('Runtime.evaluate', { expression: process.env.ACTION, returnByValue: true });
+    await sleep(700);
+  }
+
   const evalJs = async expr => {
     const r = await send('Runtime.evaluate', { expression: expr, returnByValue: true });
     return r.result && r.result.value;
@@ -129,6 +136,27 @@ async function main() {
              [...document.querySelectorAll('.air-parts span')].map(n => n.textContent).join(' ') : 'non ancora',
       pollini: [...document.querySelectorAll('.pollen-row')].map(n => n.textContent.trim()),
       modelli: el('#trust') && !el('#trust').hidden ? el('#trust').textContent : 'non ancora',
+      giornoAperto: (() => {
+        const dv = el('#dayview');
+        if (!dv || dv.hidden) return 'chiuso';
+        return {
+          titolo: el('#dv-title').textContent,
+          verdetto: el('.dv-verdict') && el('.dv-verdict').textContent,
+          nota: el('.dv-note') && el('.dv-note').textContent,
+          dettagli: [...document.querySelectorAll('.dv-fact')].map(n =>
+            n.querySelector('.dv-fact-k').textContent + ' ' +
+            n.querySelector('.dv-fact-v').textContent +
+            (n.querySelector('.dv-fact-w') ? ' (' + n.querySelector('.dv-fact-w').textContent + ')' : '')),
+          modelli: el('.dv-trust') && el('.dv-trust').textContent,
+          ore: document.querySelectorAll('#dv-body .hour').length,
+          puntini: document.querySelectorAll('.dv-dots i').length,
+        };
+      })(),
+      dettagliHome: [...document.querySelectorAll('.fact')].map(n =>
+        n.querySelector('.fact-k').textContent + ' ' + n.querySelector('.fact-v').textContent +
+        (n.querySelector('.fact-w') ? ' → ' + n.querySelector('.fact-w').textContent : '')),
+      oreConSole: document.querySelectorAll('.hour.sunmark').length,
+      oreDiNotte: document.querySelectorAll('#hours .hour.night').length,
       testo: {
         verdetto: el('#verdict') && el('#verdict').textContent,
         finestra: el('#hero-window') && el('#hero-window').textContent,

@@ -2,7 +2,7 @@
 <html lang="it" data-scene="night-clear">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <title>Meteo</title>
 <meta name="description" content="Il meteo che risponde: come mi vesto e quando piove.">
 <meta name="theme-color" content="#05070f" id="theme-color">
@@ -94,6 +94,8 @@
   </button>
 </header>
 
+<div class="pull" id="pull" aria-hidden="true"><div class="pull-ring"></div></div>
+
 <main id="main">
 
   <!-- prima schermata: il verdetto e la pioggia -->
@@ -152,6 +154,20 @@
     <button class="btn" id="btn-retry">Riprova</button>
   </div>
 </main>
+
+<!-- un giorno a schermo intero, si sfoglia scorrendo di lato -->
+<section class="dayview" id="dayview" hidden aria-label="Dettaglio del giorno">
+  <header class="dv-bar">
+    <button class="dv-close" id="dv-close" aria-label="Chiudi">✕</button>
+    <h2 id="dv-title">—</h2>
+    <div class="dv-arrows">
+      <button id="dv-prev" aria-label="Giorno precedente">‹</button>
+      <button id="dv-next" aria-label="Giorno successivo">›</button>
+    </div>
+  </header>
+  <div class="dv-body" id="dv-body"></div>
+  <div class="dv-dots" id="dv-dots" aria-hidden="true"></div>
+</section>
 
 <div class="sheet-backdrop" id="sheet-backdrop" hidden></div>
 <aside class="sheet" id="sheet" hidden aria-label="Impostazioni">

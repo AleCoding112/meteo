@@ -73,6 +73,50 @@ const POLLEN = [
 ];
 const POLLEN_WORDS = ['assente', 'basso', 'moderato', 'alto', 'molto alto'];
 
+/* --- Dal numero alla parola ---
+   Un valore in km/h o in percento non fa cambiare comportamento a
+   nessuno che non sia del mestiere. Ogni misura porta con sé la
+   parola comune che le corrisponde. */
+
+const WIND_WORDS = [
+  [  6, 'aria ferma'],     [ 19, 'brezza leggera'], [ 28, 'brezza'],
+  [ 38, 'vento moderato'], [ 49, 'vento sostenuto'], [ 61, 'vento forte'],
+  [ 74, 'burrasca'],       [Infinity, 'tempesta'],
+];
+const GUST_WORDS = [
+  [ 19, 'trascurabili'], [ 38, 'moderate'], [ 49, 'sensibili'],
+  [ 61, 'forti'],        [ 74, 'molto forti'], [Infinity, 'pericolose'],
+];
+const UV_WORDS = [
+  [ 2, 'basso'], [ 5, 'medio'], [ 7, 'alto'], [ 10, 'molto alto'], [Infinity, 'estremo'],
+];
+const pick = (table, v) => (table.find(r => v <= r[0]) || table[table.length - 1])[1];
+
+const windWord = kmh => pick(WIND_WORDS, kmh ?? 0);
+const gustWord = kmh => pick(GUST_WORDS, kmh ?? 0);
+const uvWord   = v   => pick(UV_WORDS, v ?? 0);
+
+/* L'umidità da sola non dice nulla: 90% a 12° è nebbia, a 30° è afa. */
+function humidityWord(rh, temp) {
+  if (rh == null) return '';
+  if (temp >= 27 && rh >= 60) return 'afa';
+  if (rh < 30) return 'aria secca';
+  if (rh < 55) return 'aria normale';
+  if (rh < 75) return 'aria umida';
+  return 'aria molto umida';
+}
+
+/* "fra 9 ore" si capisce meglio di "20:21" quando la domanda è
+   quanta luce resta. */
+function untilWord(ms) {
+  const min = Math.round(ms / 60000);
+  if (min <= 1) return 'adesso';
+  if (min < 60) return 'fra ' + min + ' min';
+  const h = Math.round(min / 60);
+  if (h < 24) return 'fra ' + h + (h === 1 ? ' ora' : ' ore');
+  return 'domani';
+}
+
 /* Codici WMO -> icona + descrizione */
 function wmo(code, isDay = 1) {
   const d = isDay ? 1 : 0;
@@ -257,7 +301,22 @@ function dressAdvice(data, chill) {
     if (!hrs.length) hrs = all.slice(-12);
   }
   if (!hrs.length) return null;
+  return adviceFromHours(data, hrs, win, chill);
+}
 
+/* Lo stesso ragionamento applicato a un giorno qualunque della
+   settimana: è ciò che permette di aprire sabato e sapere come
+   vestirsi sabato. */
+function dressAdviceForDay(data, i, chill) {
+  const d = data.daily;
+  if (!d.sunrise || !d.sunrise[i] || !d.sunset[i]) return null;
+  const from = tsOf(d.sunrise[i]), to = tsOf(d.sunset[i]);
+  const hrs = hoursIn(data, from, to);
+  if (!hrs.length) return null;
+  return adviceFromHours(data, hrs, { from, to, dayIndex: i, label: '', tomorrow: false }, chill);
+}
+
+function adviceFromHours(data, hrs, win, chill) {
   const feels = hrs.map(h => h.feels);
   const feelsMin = Math.min(...feels);
   const feelsMax = Math.max(...feels);
@@ -669,9 +728,63 @@ function renderAir(air) {
   box.appendChild(list);
 }
 
+/* La striscia delle ore, usata sia in apertura sia dentro un giorno.
+   Le ore di notte sono più scure, alba e tramonto compaiono al loro
+   posto nella sequenza, e la pioggia è una fascia continua sotto:
+   così si vede quando piove, non solo se. */
+function renderHours(box, hrs, data, opts = {}) {
+  box.textContent = '';
+  if (!hrs.length) return;
+
+  const d = data.daily;
+  const from = hrs[0].t, to = hrs[hrs.length - 1].t + 3599000;
+  const marks = [];
+  if (d.sunrise) {
+    for (let i = 0; i < d.sunrise.length; i++) {
+      [[d.sunrise[i], 'alba'], [d.sunset[i], 'tramonto']].forEach(([iso, label]) => {
+        if (!iso) return;
+        const t = tsOf(iso);
+        if (t >= from && t <= to) marks.push({ t, iso, label });
+      });
+    }
+  }
+
+  const items = hrs.map(h => ({ t: h.t, h }))
+    .concat(marks.map(m => ({ t: m.t, m })))
+    .sort((a, b) => a.t - b.t);
+
+  items.forEach((it, i) => {
+    if (it.m) {
+      const c = el('div', 'hour sunmark');
+      const box2 = el('div', 'hour-sun');
+      box2.appendChild(icon('sun'));
+      box2.appendChild(el('span', null, it.m.label));
+      box2.appendChild(el('span', null, hhmm(it.m.iso)));
+      c.appendChild(box2);
+      box.appendChild(c);
+      return;
+    }
+    const h = it.h;
+    const primo = opts.markNow && !items.slice(0, i).some(x => x.h);
+    const c = el('div', 'hour' + (primo ? ' is-now' : '') + (h.day ? '' : ' night'));
+    c.dataset.t = h.t;
+    c.appendChild(el('div', 'hour-time', primo ? 'ora' : hhmm(h.iso)));
+    c.appendChild(icon(wmo(h.code, h.day)[0], 'hour-ico'));
+    c.appendChild(el('div', 'hour-temp', Math.round(h.temp) + '°'));
+    c.appendChild(el('div', 'hour-pop', h.pop >= 20 ? h.pop + '%' : ''));
+    const bagnato = h.mm >= 0.1 || h.pop >= 50;
+    const rain = el('div', 'hour-rain' + (bagnato ? '' : ' dry'));
+    rain.title = h.mm ? h.mm.toFixed(1) + ' mm' : (h.pop || 0) + '%';
+    c.appendChild(rain);
+    box.appendChild(c);
+  });
+}
+
 let lastPlaceId = null;
+let current = null;      // ultimo insieme di dati disegnato
 
 function renderAll(bundle, cachedAt) {
+  current = bundle;
   const data = bundle.f;
   const chill = store.chill;
   applyScene(skyScene(data));
@@ -707,20 +820,25 @@ function renderAll(bundle, cachedAt) {
   const di2 = wi ? wi.dayIndex : ti;
   const nowMs = nowTs(data);
   const sunUp = wi && !wi.tomorrow && nowMs < tsOf(d0.sunset[ti]);
+  const gust = Math.round(cur.wind_gusts_10m ?? 0);
+  const rh = Math.round(cur.relative_humidity_2m ?? 0);
+  const sunIso = sunUp ? d0.sunset[ti] : d0.sunrise[Math.min(di2, d0.sunrise.length - 1)];
   const rows = [
-    ['Vento', Math.round(cur.wind_speed_10m) + ' <small>km/h</small>'],
-    ['Raffiche', Math.round(cur.wind_gusts_10m ?? 0) + ' <small>km/h</small>'],
-    ['Umidità', Math.round(cur.relative_humidity_2m ?? 0) + '<small>%</small>'],
-    sunUp
-      ? ['Tramonto', hhmm(d0.sunset[ti])]
-      : ['Alba', hhmm(d0.sunrise[Math.min(di2, d0.sunrise.length - 1)])],
+    ['Vento', Math.round(cur.wind_speed_10m) + ' <small>km/h</small>',
+      windWord(cur.wind_speed_10m), cur.wind_speed_10m >= 39],
+    ['Raffiche', gust + ' <small>km/h</small>',
+      gust >= GUST_WINDY ? 'ombrello a rischio' : gustWord(gust), gust >= GUST_WINDY],
+    ['Umidità', rh + '<small>%</small>',
+      humidityWord(rh, cur.temperature_2m), rh >= 60 && cur.temperature_2m >= 27],
+    [sunUp ? 'Tramonto' : 'Alba', hhmm(sunIso), untilWord(tsOf(sunIso) - nowMs), false],
   ];
-  rows.forEach(([k, v]) => {
-    const cell = el('div', 'fact');
+  rows.forEach(([k, v, word, warn]) => {
+    const cell = el('div', 'fact' + (warn ? ' alert' : ''));
     cell.appendChild(el('span', 'fact-k', k));
     const val = el('div', 'fact-v');
     val.innerHTML = v;
     cell.appendChild(val);
+    if (word) cell.appendChild(el('div', 'fact-w', word));
     facts.appendChild(cell);
   });
 
@@ -750,17 +868,7 @@ function renderAll(bundle, cachedAt) {
 
   /* ore */
   const now = nowTs(data);
-  const next = hoursIn(data, now, now + 24 * 3600000).slice(0, 24);
-  const box = $('hours');
-  box.textContent = '';
-  next.forEach((h, i) => {
-    const c = el('div', 'hour' + (i === 0 ? ' is-now' : ''));
-    c.appendChild(el('div', 'hour-time', i === 0 ? 'ora' : hhmm(h.iso)));
-    c.appendChild(icon(wmo(h.code, h.day)[0], 'hour-ico'));
-    c.appendChild(el('div', 'hour-temp', Math.round(h.temp) + '°'));
-    c.appendChild(el('div', 'hour-pop', h.pop >= 20 ? h.pop + '%' : ''));
-    box.appendChild(c);
-  });
+  renderHours($('hours'), hoursIn(data, now, now + 24 * 3600000).slice(0, 24), data, { markNow: true });
 
   /* giorni: l'archivio dei giorni scorsi serve solo agli avvisi,
      qui si parte da oggi */
@@ -801,6 +909,11 @@ function renderAll(bundle, cachedAt) {
       : 'accordo fra i modelli non disponibile';
     row.appendChild(trust);
 
+    row.tabIndex = 0;
+    row.setAttribute('role', 'button');
+    row.setAttribute('aria-label', 'Apri ' + (i === ti ? 'oggi' : weekday(iso, false)));
+    row.onclick = () => openDay(i);
+    row.onkeydown = ev => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); openDay(i); } };
     list.appendChild(row);
   });
 
@@ -816,6 +929,13 @@ function renderAll(bundle, cachedAt) {
     : 'aggiornato ' + (ageMin < 60 ? ageMin + ' min fa' : Math.round(ageMin / 60) + ' h fa');
   stamp.className = 'stamp' + (ageMin > 90 ? ' stale' : '');
 
+  if (dvIndex != null) {
+    const ti = todayIndex(data);
+    if (dvIndex < ti) dvIndex = ti;                    /* è passata la mezzanotte */
+    if (dvIndex >= data.daily.time.length) dvIndex = data.daily.time.length - 1;
+    renderDay();
+  }
+
   const place = store.places[store.active];
   if (place && place.id !== lastPlaceId) {
     lastPlaceId = place.id;
@@ -826,6 +946,222 @@ function renderAll(bundle, cachedAt) {
   }
 
   showState(null);
+}
+
+/* ---------- 8b. Un giorno a schermo intero -----------------
+   Il verdetto vale per tutta la settimana, non solo per oggi:
+   qui si apre il singolo giorno e lo si sfoglia scorrendo. */
+
+let dvIndex = null;
+
+function openDay(i) {
+  if (!current) return;
+  dvIndex = i;
+  const dv = $('dayview');
+  /* prima si mostra, poi si disegna: a pannello nascosto le posizioni
+     valgono zero e lo scorrimento iniziale della striscia non prende */
+  dv.hidden = false;
+  document.body.style.overflow = 'hidden';
+  renderDay();
+  dv.scrollTop = 0;
+}
+
+function closeDay() {
+  $('dayview').hidden = true;
+  document.body.style.overflow = '';
+  dvIndex = null;
+}
+
+function stepDay(dir) {
+  if (dvIndex == null || !current) return;
+  const d = current.f.daily;
+  const ti = todayIndex(current.f);
+  const next = dvIndex + dir;
+  if (next < ti || next >= d.time.length) return;
+  dvIndex = next;
+  renderDay();
+  $('dayview').scrollTop = 0;
+}
+
+function renderDay() {
+  const bundle = current, data = bundle.f, d = data.daily, i = dvIndex;
+  const ti = todayIndex(data);
+
+  const giorno = new Date(tsOf(d.time[i]));
+  $('dv-title').textContent = i === ti ? 'Oggi'
+    : giorno.toLocaleDateString('it-IT', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'UTC' });
+  $('dv-prev').disabled = i <= ti;
+  $('dv-next').disabled = i >= d.time.length - 1;
+
+  const body = $('dv-body');
+  body.textContent = '';
+
+  /* come vestirsi quel giorno */
+  const adv = dressAdviceForDay(data, i, store.chill);
+  if (adv) {
+    body.appendChild(el('h1', 'dv-verdict', adv.main));
+    if (adv.note) {
+      const n = el('p', 'dv-note');
+      n.innerHTML = adv.note;
+      body.appendChild(n);
+    }
+  }
+
+  /* minima e massima, sulla scala della settimana */
+  const idx = [];
+  for (let k = ti; k < d.time.length; k++) idx.push(k);
+  const lo = Math.min(...idx.map(k => d.temperature_2m_min[k]));
+  const hi = Math.max(...idx.map(k => d.temperature_2m_max[k]));
+  const span = Math.max(hi - lo, 1);
+  const range = el('div', 'dv-range');
+  range.appendChild(el('span', 'dv-lo', Math.round(d.temperature_2m_min[i]) + '°'));
+  const bar = el('div', 'dv-range-bar');
+  const fill = el('span');
+  fill.style.left  = ((d.temperature_2m_min[i] - lo) / span * 100) + '%';
+  fill.style.width = ((d.temperature_2m_max[i] - d.temperature_2m_min[i]) / span * 100) + '%';
+  bar.appendChild(fill);
+  range.appendChild(bar);
+  range.appendChild(el('span', 'dv-hi', Math.round(d.temperature_2m_max[i]) + '°'));
+  body.appendChild(range);
+
+  /* le ore di quel giorno */
+  const from = tsOf(d.time[i]), to = from + 24 * 3600000 - 1000;
+  const hrs = hoursIn(data, from, to);
+  if (hrs.length) {
+    const sec = el('section', 'dv-section');
+    sec.appendChild(el('h3', null, 'Ora per ora'));
+    const strip = el('div', 'hours');
+    sec.appendChild(strip);
+    body.appendChild(sec);
+    renderHours(strip, hrs, data, { markNow: i === ti });
+    /* aprire un giorno e vedere per prime le ore in cui si dorme non
+       serve: si parte da adesso, o dall'alba per i giorni futuri. */
+    const inizio = i === ti ? nowTs(data) : (d.sunrise[i] ? tsOf(d.sunrise[i]) - 3600000 : from);
+    const target = [...strip.children].find(n => n.dataset.t && +n.dataset.t >= inizio);
+    if (target) strip.scrollLeft = Math.max(0, target.offsetLeft - 8);
+  }
+
+  /* i numeri, con la parola che li spiega */
+  const mm    = hrs.reduce((a, h) => a + (h.mm || 0), 0);
+  const pop   = hrs.length ? Math.max(...hrs.map(h => h.pop || 0)) : 0;
+  const wind  = hrs.length ? Math.max(...hrs.map(h => h.wind || 0)) : 0;
+  const gust  = Math.max(d.wind_gusts_10m_max ? (d.wind_gusts_10m_max[i] || 0) : 0,
+                         hrs.length ? Math.max(...hrs.map(h => h.gust || 0)) : 0);
+  const uv    = d.uv_index_max ? (d.uv_index_max[i] || 0) : 0;
+  const ore   = hrs.filter(h => (h.mm || 0) >= 0.1).length;
+
+  const facts = [
+    ['Pioggia', mm >= 0.1 ? mm.toFixed(1) + ' <small>mm</small>' : pop + '<small>%</small>',
+      mm >= 0.1 ? (ore + (ore === 1 ? ' ora bagnata' : ' ore bagnate')) : (pop >= 40 ? 'possibile' : 'asciutto'),
+      mm >= 5],
+    ['Vento', Math.round(wind) + ' <small>km/h</small>', windWord(wind), wind >= 39],
+    ['Raffiche', Math.round(gust) + ' <small>km/h</small>',
+      gust >= GUST_WINDY ? 'ombrello a rischio' : gustWord(gust), gust >= GUST_WINDY],
+    ['Raggi UV', String(Math.round(uv)), uvWord(uv), uv >= UV_STRONG],
+    ['Alba', d.sunrise[i] ? hhmm(d.sunrise[i]) : '—', '', false],
+    ['Tramonto', d.sunset[i] ? hhmm(d.sunset[i]) : '—',
+      d.sunrise[i] && d.sunset[i]
+        ? Math.round((tsOf(d.sunset[i]) - tsOf(d.sunrise[i])) / 3600000) + ' ore di luce' : '', false],
+  ];
+  const sec2 = el('section', 'dv-section');
+  sec2.appendChild(el('h3', null, 'In dettaglio'));
+  const grid = el('div', 'dv-facts');
+  facts.forEach(([k, v, w, warn]) => {
+    const cell = el('div', 'dv-fact' + (warn ? ' alert' : ''));
+    cell.appendChild(el('span', 'dv-fact-k', k));
+    const val = el('div', 'dv-fact-v');
+    val.innerHTML = v;
+    cell.appendChild(val);
+    if (w) cell.appendChild(el('div', 'dv-fact-w', w));
+    grid.appendChild(cell);
+  });
+  sec2.appendChild(grid);
+
+  /* quanto vale la previsione di questo giorno */
+  const sp = modelSpread(bundle);
+  const e = sp && sp.get(d.time[i]);
+  if (e) {
+    const t = el('p', 'dv-trust');
+    t.innerHTML = e.level === 3
+      ? 'I tre modelli <b>concordano</b> su questo giorno.'
+      : e.level === 2
+        ? `I modelli differiscono di <b>${e.dt.toFixed(1)}°</b> sulla massima: previsione probabile ma non certa.`
+        : `I modelli differiscono di <b>${e.dt.toFixed(1)}°</b>: su questo giorno c'è poco da fidarsi.`;
+    sec2.appendChild(t);
+  }
+  body.appendChild(sec2);
+
+  /* a che punto della settimana siamo */
+  const dots = $('dv-dots');
+  dots.textContent = '';
+  idx.forEach(k => dots.appendChild(el('i', k === i ? 'on' : null)));
+}
+
+/* ---------- 8c. Gesti -------------------------------------- */
+
+function onSwipe(node, handler, ignore) {
+  let x0 = null, y0 = null;
+  node.addEventListener('touchstart', e => {
+    if (e.touches.length !== 1 || (ignore && e.target.closest(ignore))) { x0 = null; return; }
+    x0 = e.touches[0].clientX;
+    y0 = e.touches[0].clientY;
+  }, { passive: true });
+  node.addEventListener('touchend', e => {
+    if (x0 == null) return;
+    const t = e.changedTouches[0];
+    const dx = t.clientX - x0, dy = t.clientY - y0;
+    x0 = null;
+    /* orizzontale deciso: non deve scattare mentre si scorre la pagina */
+    if (Math.abs(dx) > 55 && Math.abs(dx) > Math.abs(dy) * 1.8) handler(dx < 0 ? 1 : -1);
+  }, { passive: true });
+}
+
+function stepPlace(dir) {
+  const n = store.places.length;
+  if (n < 2) return;
+  store.active = (store.active + dir + n) % n;
+  load();
+}
+
+/* trascina verso il basso per aggiornare */
+function setupPull() {
+  const ind = $('pull');
+  let y0 = null, armed = false;
+
+  const reset = () => {
+    ind.style.opacity = '0';
+    ind.style.transform = '';
+    ind.classList.remove('armed', 'spinning');
+    y0 = null; armed = false;
+  };
+
+  document.addEventListener('touchstart', e => {
+    const libero = window.scrollY <= 0 && $('dayview').hidden && $('sheet').hidden;
+    y0 = (libero && e.touches.length === 1) ? e.touches[0].clientY : null;
+    armed = false;
+  }, { passive: true });
+
+  document.addEventListener('touchmove', e => {
+    if (y0 == null) return;
+    const dy = e.touches[0].clientY - y0;
+    if (dy <= 0) { ind.style.opacity = '0'; return; }
+    const p = Math.min(dy / 90, 1);
+    ind.style.opacity = String(p);
+    ind.style.transform = 'translateY(' + Math.min(dy * .4, 44) + 'px)';
+    armed = p >= 1;
+    ind.classList.toggle('armed', armed);
+  }, { passive: true });
+
+  document.addEventListener('touchend', () => {
+    if (y0 == null) return;
+    if (armed) {
+      ind.classList.add('spinning');
+      Promise.resolve(load(true)).then(reset, reset);
+    } else {
+      reset();
+    }
+    y0 = null;
+  }, { passive: true });
 }
 
 /* ---------- 9. Caricamento --------------------------------- */
@@ -1118,6 +1454,22 @@ $('btn-first-add').onclick = openSheet;
 $('btn-retry').onclick = () => load(true);
 $('btn-geo').onclick = useGeolocation;
 $('btn-alerts').onclick = enableAlerts;
+$('dv-close').onclick = closeDay;
+$('dv-prev').onclick  = () => stepDay(-1);
+$('dv-next').onclick  = () => stepDay(1);
+
+/* scorrendo di lato: dentro un giorno si cambia giorno, in apertura
+   si cambia località. La striscia delle ore scorre per conto suo. */
+onSwipe($('dayview'), stepDay, '.hours');
+onSwipe($('main'), stepPlace, '.hours');
+setupPull();
+
+document.addEventListener('keydown', e => {
+  if ($('dayview').hidden) return;
+  if (e.key === 'Escape') closeDay();
+  if (e.key === 'ArrowLeft') stepDay(-1);
+  if (e.key === 'ArrowRight') stepDay(1);
+});
 $('btn-copy').onclick = copyAlertCode;
 $('search').oninput = onSearch;
 $('chill').oninput = e => setChill(+e.target.value);

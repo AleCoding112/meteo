@@ -3,7 +3,7 @@
    quelle le conserva l'app in localStorage, così sa dirti quanto
    sono vecchie invece di spacciarle per fresche. */
 
-const CACHE = 'meteo-v5';
+const CACHE = 'meteo-v6';
 const SHELL = [
   './',
   './index.html',

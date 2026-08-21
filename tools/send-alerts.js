@@ -8,13 +8,16 @@
    Ambiente:  ALERT_CONFIG  (JSON: subscription + località)
               VAPID_PRIVATE (segreto)
               VAPID_SUBJECT (facoltativo)
-   Uso:       node tools/send-alerts.js [--dry]                   */
+   Uso:       node tools/send-alerts.js [--dry] [--test]
+              --dry   mostra cosa manderebbe, senza mandarlo
+              --test  manda una notifica di verifica e basta         */
 
 const fs = require('fs');
 const path = require('path');
 
 const ROOT = path.join(__dirname, '..');
 const DRY = process.argv.includes('--dry');
+const TEST = process.argv.includes('--test');
 const STATE = path.join(ROOT, '.state', 'sent.json');
 
 /* soglia di importanza: 1 temporale, 2 gelo, 3 caldo/raffiche,
@@ -65,6 +68,14 @@ function saveState(state) {
   fs.writeFileSync(STATE, JSON.stringify(state, null, 1) + '\n');
 }
 
+function pushClient() {
+  const priv = process.env.VAPID_PRIVATE;
+  if (!priv) { console.log('VAPID_PRIVATE mancante: non posso firmare l\'invio.'); process.exit(1); }
+  const webpush = require('web-push');
+  webpush.setVapidDetails(process.env.VAPID_SUBJECT || 'https://github.com', VAPID_PUBLIC, priv);
+  return webpush;
+}
+
 async function main() {
   const raw = process.env.ALERT_CONFIG;
   if (!raw) {
@@ -72,6 +83,19 @@ async function main() {
     return;
   }
   const cfg = JSON.parse(raw);
+
+  /* verifica del collegamento: utile dopo aver reinstallato l'app,
+     quando l'indirizzo del telefono cambia e va riprovato. */
+  if (TEST) {
+    await pushClient().sendNotification(cfg.sub, JSON.stringify({
+      title: 'Meteo',
+      body: 'Allerte collegate: da qui in poi scrivo solo quando serve.',
+      tag: 'meteo-prova',
+    }));
+    console.log('notifica di prova inviata a', cfg.sub.endpoint.split('/')[2]);
+    return;
+  }
+
   const places = cfg.places || [];
   if (!places.length) { console.log('nessuna località nella configurazione.'); return; }
 
@@ -102,11 +126,7 @@ async function main() {
 
   if (DRY) { console.log('\n(prova a vuoto: non invio nulla)'); return; }
 
-  const priv = process.env.VAPID_PRIVATE;
-  if (!priv) { console.log('\nVAPID_PRIVATE mancante: non posso firmare l\'invio.'); process.exit(1); }
-
-  const webpush = require('web-push');
-  webpush.setVapidDetails(process.env.VAPID_SUBJECT || 'https://github.com', VAPID_PUBLIC, priv);
+  const webpush = pushClient();
 
   for (const m of toSend) {
     try {

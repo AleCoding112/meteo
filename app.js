@@ -117,6 +117,7 @@ function read(k, fallback) {
 function write(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} }
 
 let inflight = null;   // AbortController della richiesta in corso
+let loadSeq = 0;       // per non far scrivere a una richiesta sorpassata
 
 /* ---------- 3. Tempo ---------------------------------------
    Open-Meteo con timezone=auto restituisce orari "da orologio
@@ -181,23 +182,6 @@ async function fetchSpread(place, signal) {
   const res = await fetch(API + '?' + q, { signal });
   if (!res.ok) throw new Error('modelli non disponibili');
   return res.json();
-}
-
-/* Le tre richieste partono insieme: se aria o modelli non rispondono
-   l'app resta utile lo stesso, semplicemente senza quelle sezioni. */
-async function fetchBundle(place, signal) {
-  const [f, air, spread] = await Promise.allSettled([
-    fetchForecast(place, signal),
-    fetchAir(place, signal),
-    fetchSpread(place, signal),
-  ]);
-  if (f.status !== 'fulfilled') throw f.reason;
-  return {
-    v: 3,
-    f: f.value,
-    air:    air.status    === 'fulfilled' ? air.value    : null,
-    spread: spread.status === 'fulfilled' ? spread.value : null,
-  };
 }
 
 async function searchPlaces(name, signal) {
@@ -859,7 +843,11 @@ async function load(force = false) {
      la forma che il rendering si aspetta: si scarta e si riscarica */
   let cached = store.cacheGet(place.id);
   if (cached && (!cached.data || cached.data.v !== 3)) { store.cacheDel(place.id); cached = null; }
-  const fresh = cached && Date.now() - cached.at < 10 * 60000;
+  /* Se aria o modelli non erano arrivati (capita quando il servizio
+     è freddo su una località mai chiesta), non si aspettano dieci
+     minuti per riprovare: si ritenta al giro dopo. */
+  const completo = !!(cached && cached.data && cached.data.air && cached.data.spread);
+  const fresh = cached && Date.now() - cached.at < (completo ? 10 : 2) * 60000;
   if (cached) {
     try { renderAll(cached.data, cached.at); } catch (e) { showState('state-loading'); }
   } else {
@@ -869,8 +857,29 @@ async function load(force = false) {
 
   if (inflight) inflight.abort();
   inflight = new AbortController();
+  const signal = inflight.signal;
+  const seq = ++loadSeq;
+  /* se nel frattempo si è cambiata località, i dati vecchi non scrivono */
+  const ancoraMia = () => seq === loadSeq &&
+    store.places[store.active] && store.places[store.active].id === place.id;
+
   try {
-    const bundle = await fetchBundle(place, inflight.signal);
+    /* Aria e modelli partono subito ma nessuno li aspetta: la previsione
+       si disegna appena arriva, il resto si aggiunge quando è pronto.
+       Su una località mai chiesta prima Open-Meteo può metterci qualche
+       secondo, e non è un buon motivo per lasciare la schermata vuota. */
+    const pAir    = fetchAir(place, signal).catch(() => null);
+    const pSpread = fetchSpread(place, signal).catch(() => null);
+
+    const bundle = { v: 3, f: await fetchForecast(place, signal), air: null, spread: null };
+    if (!ancoraMia()) return;
+    store.cacheSet(place.id, bundle);
+    renderAll(bundle, Date.now());
+
+    const [air, spread] = await Promise.all([pAir, pSpread]);
+    if (!ancoraMia()) return;
+    bundle.air = air;
+    bundle.spread = spread;
     store.cacheSet(place.id, bundle);
     renderAll(bundle, Date.now());
   } catch (e) {
@@ -879,7 +888,7 @@ async function load(force = false) {
       ? e.message
       : 'Sei offline e per questa località non ho ancora salvato nulla.');
   } finally {
-    inflight = null;
+    if (seq === loadSeq) inflight = null;
   }
 }
 

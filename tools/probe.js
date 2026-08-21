@@ -63,11 +63,25 @@ async function main() {
     ws.send(JSON.stringify({ id: n, method, params }));
   });
 
+  /* tutto ciò che la pagina dice o sbaglia finisce nel rapporto */
+  const console_ = [];
+  ws.addEventListener('message', ev => {
+    const m = JSON.parse(ev.data);
+    if (m.method === 'Runtime.consoleAPICalled') {
+      console_.push(m.params.type + ': ' +
+        m.params.args.map(a => a.value !== undefined ? a.value : (a.description || a.type)).join(' '));
+    }
+    if (m.method === 'Runtime.exceptionThrown') {
+      const d = m.params.exceptionDetails;
+      console_.push('ECCEZIONE: ' + (d.exception && (d.exception.description || d.exception.value) || d.text));
+    }
+  });
+
   await send('Page.enable');
   await send('Runtime.enable');
   await send('Emulation.setDeviceMetricsOverride', DEVICE);
   await send('Page.navigate', { url: URL_BASE + page });
-  await sleep(6500);
+  await sleep(+(process.env.WAIT || 6500));
 
   const evalJs = async expr => {
     const r = await send('Runtime.evaluate', { expression: expr, returnByValue: true });
@@ -91,6 +105,10 @@ async function main() {
     const box = s => { const n = el(s); if (!n) return null; const r = n.getBoundingClientRect();
                        return { w: Math.round(r.width), h: Math.round(r.height), top: Math.round(r.top), bottom: Math.round(r.bottom) }; };
     return {
+      indirizzo: location.href,
+      vivaDa: Math.round(performance.now()) + 'ms',
+      figliDiAir: document.querySelector('#air') ? document.querySelector('#air').children.length : 'nessun #air',
+      airCardNascosta: document.querySelector('#air-card') ? document.querySelector('#air-card').hidden : '?',
       viewport: innerWidth + '×' + innerHeight,
       scrollWidth: de.scrollWidth,
       overflowX: de.scrollWidth > innerWidth,
@@ -106,6 +124,11 @@ async function main() {
         return r.getBoundingClientRect().bottom <= innerHeight ? 'sì, la pioggia entra' :
                'no, la pioggia finisce a ' + Math.round(r.getBoundingClientRect().bottom) + 'px';
       })(),
+      /* le sezioni che arrivano in un secondo momento */
+      aria:  el('.air-label') ? el('.air-label').textContent + ' · ' +
+             [...document.querySelectorAll('.air-parts span')].map(n => n.textContent).join(' ') : 'non ancora',
+      pollini: [...document.querySelectorAll('.pollen-row')].map(n => n.textContent.trim()),
+      modelli: el('#trust') && !el('#trust').hidden ? el('#trust').textContent : 'non ancora',
       testo: {
         verdetto: el('#verdict') && el('#verdict').textContent,
         finestra: el('#hero-window') && el('#hero-window').textContent,
@@ -116,6 +139,7 @@ async function main() {
   })()`);
 
   console.log(JSON.stringify(report, null, 1));
+  if (console_.length) console.log('\n--- console della pagina ---\n' + console_.join('\n'));
 
   const shot = await send('Page.captureScreenshot', {
     format: 'png',

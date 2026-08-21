@@ -101,7 +101,7 @@ function png(rgba, size) {
 
 const dir = path.join(__dirname, '..', 'icons');
 fs.mkdirSync(dir, { recursive: true });
-for (const [name, size] of [['icon-192', 192], ['icon-512', 512], ['apple-touch-icon', 180]]) {
+for (const [name, size] of [['icon-192', 192], ['icon-512', 512], ['apple-touch-icon-180', 180]]) {
   const file = path.join(dir, name + '.png');
   fs.writeFileSync(file, png(render(size), size));
   console.log(name + '.png  ' + size + 'x' + size + '  ' + (fs.statSync(file).size / 1024).toFixed(1) + ' kB');

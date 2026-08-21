@@ -931,3 +931,216 @@ button, .day, .place, .hour { touch-action: manipulation; -webkit-tap-highlight-
   margin: 0 -2px;     /* scavalca il divario: la pioggia è una fascia continua */
 }
 .hour-rain.dry { background: rgba(255,255,255,.12); opacity: 1; }
+
+/* ============================================================
+   Il pannello dei dettagli: uno solo, per tutta l'app.
+   Ogni numero può rispondere a "da dove vieni" senza far
+   perdere il posto in cui si stava guardando.
+   ============================================================ */
+
+.ds-back {
+  position: fixed; inset: 0; z-index: 50;
+  background: rgba(0,0,0,.45);
+  -webkit-backdrop-filter: blur(2px);
+  backdrop-filter: blur(2px);
+  animation: fade .2s;
+}
+
+.dsheet {
+  position: fixed;
+  z-index: 51;
+  left: 0; right: 0; bottom: 0;
+  max-height: 86vh;
+  max-height: 86dvh;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  background: rgba(11,15,25,.90);
+  -webkit-backdrop-filter: blur(30px) saturate(150%);
+  backdrop-filter: blur(30px) saturate(150%);
+  border-top: 1px solid rgba(255,255,255,.16);
+  border-radius: 24px 24px 0 0;
+  padding: 0 var(--pad) calc(28px + env(safe-area-inset-bottom));
+  animation: rise .3s cubic-bezier(.2,.85,.3,1);
+}
+@media (min-width: 620px) {
+  .dsheet { left: 50%; right: auto; width: 560px; transform: translateX(-50%); }
+}
+
+.ds-grip {
+  display: block;
+  width: 100%;
+  padding: 12px 0 10px;
+  border: 0;
+  background: none;
+  cursor: pointer;
+}
+.ds-grip::before {
+  content: '';
+  display: block;
+  width: 38px; height: 4px;
+  margin: 0 auto;
+  border-radius: 2px;
+  background: rgba(255,255,255,.30);
+}
+
+.ds-kicker {
+  margin: 0 0 6px;
+  font-size: 11.5px; font-weight: 700;
+  letter-spacing: .15em; text-transform: uppercase;
+  color: var(--ink-3);
+}
+.ds-title {
+  margin: 0;
+  font-size: 26px; font-weight: 700;
+  letter-spacing: -.03em;
+  line-height: 1.14;
+  text-wrap: balance;
+}
+.ds-lead {
+  margin: 10px 0 0;
+  font-size: 16px; font-weight: 500;
+  color: var(--ink-2);
+  text-wrap: pretty;
+}
+.ds-lead .warn { color: var(--warm); font-weight: 700; }
+
+.ds-sec { margin-top: 24px; }
+.ds-sec h4 {
+  margin: 0 0 12px;
+  font-size: 11.5px; font-weight: 700;
+  letter-spacing: .15em; text-transform: uppercase;
+  color: var(--ink-3);
+}
+
+/* le righe "questo numero, questo significato" */
+.ds-rows { display: flex; flex-direction: column; }
+.ds-row {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  padding: 11px 0;
+  border-top: 1px solid var(--hair);
+  font-variant-numeric: tabular-nums;
+}
+.ds-row:first-child { border-top: 0; }
+.ds-row-k { flex: 1; font-size: 15px; font-weight: 550; color: var(--ink-2); }
+.ds-row-v { font-size: 17px; font-weight: 650; letter-spacing: -.01em; }
+.ds-row-w { font-size: 13px; font-weight: 550; color: var(--ink-3); flex: 0 0 auto; }
+.ds-row.alert .ds-row-v, .ds-row.alert .ds-row-w { color: var(--warm); }
+
+/* il perché di un consiglio: i fattori che l'hanno prodotto */
+.ds-why { display: flex; flex-direction: column; gap: 10px; }
+.ds-why-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  font-size: 15px;
+  font-weight: 500;
+  color: var(--ink-2);
+  line-height: 1.4;
+}
+.ds-why-item b { color: var(--ink); font-weight: 700; }
+.ds-why-dot {
+  flex: 0 0 auto;
+  width: 7px; height: 7px;
+  margin-top: 7px;
+  border-radius: 50%;
+  background: var(--cool);
+}
+.ds-why-dot.warm { background: var(--warm); }
+
+/* piccolo grafico dell'andamento dentro il pannello */
+.ds-chart {
+  display: flex;
+  align-items: flex-end;
+  gap: 3px;
+  height: 76px;
+  margin-top: 4px;
+}
+.ds-chart div {
+  flex: 1;
+  min-height: 3px;
+  border-radius: 3px 3px 0 0;
+  background: linear-gradient(180deg, var(--cool), rgba(169,218,255,.35));
+}
+.ds-chart div.warm { background: linear-gradient(180deg, var(--warm), rgba(255,210,125,.35)); }
+.ds-chart div.now { outline: 1.5px solid var(--ink); outline-offset: 1px; }
+.ds-axis {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--hair);
+  font-size: 12px; font-weight: 600;
+  color: var(--ink-3);
+  font-variant-numeric: tabular-nums;
+}
+
+/* la rosa dei venti */
+.ds-wind { display: flex; align-items: center; gap: 18px; margin-bottom: 4px; }
+.ds-compass {
+  position: relative;
+  width: 74px; height: 74px;
+  flex: 0 0 auto;
+  border: 1.5px solid rgba(255,255,255,.18);
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+}
+.ds-compass span {
+  position: absolute;
+  font-size: 9.5px; font-weight: 700;
+  color: var(--ink-3);
+  letter-spacing: .04em;
+}
+.ds-compass .n { top: 4px; }
+.ds-compass .s { bottom: 4px; }
+.ds-compass .e { right: 5px; }
+.ds-compass .o { left: 5px; }
+.ds-arrow { width: 34px; height: 34px; color: var(--cool); transition: transform .4s; }
+.ds-wind-txt { font-size: 15px; font-weight: 550; color: var(--ink-2); line-height: 1.45; }
+.ds-wind-txt b { display: block; font-size: 22px; font-weight: 650; color: var(--ink); letter-spacing: -.02em; }
+
+/* il cursore di taratura, dentro il pannello del verdetto */
+.ds-tune { margin-top: 6px; }
+.ds-tune .slider-label { font-size: 15px; }
+
+/* i modelli a confronto */
+.ds-models { display: flex; flex-direction: column; }
+.ds-model-row {
+  display: grid;
+  grid-template-columns: 3.2em 1fr 1fr 1fr;
+  gap: 8px;
+  padding: 9px 0;
+  border-top: 1px solid var(--hair);
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+.ds-model-row:first-child { border-top: 0; }
+.ds-model-row span:first-child { text-align: left; font-weight: 650; }
+.ds-model-row.head { color: var(--ink-3); font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
+.ds-model-row.wide { color: var(--warm); }
+
+/* elementi che rispondono al tocco */
+.tappable { cursor: pointer; -webkit-tap-highlight-color: transparent; transition: opacity .15s; }
+.tappable:active { opacity: .55; }
+.fact.tappable, .hour.tappable { border-radius: 12px; transition: background .15s, opacity .15s; }
+.fact.tappable:active, .hour.tappable:active { background: rgba(255,255,255,.10); opacity: 1; }
+.alert.tappable:active { opacity: .6; }
+
+/* etichetta che compare toccando una barra di pioggia */
+.rain-read {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 10px;
+  min-height: 20px;
+  margin-bottom: 8px;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--cool);
+  font-variant-numeric: tabular-nums;
+}
+.rain-read span:last-child { color: var(--ink-3); font-weight: 550; }
+.rain-bar.picked { outline: 1.5px solid var(--ink); outline-offset: 1px; }

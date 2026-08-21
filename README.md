@@ -22,6 +22,9 @@ scaricato, e non ha nulla da mantenere dietro le quinte.
 - **Che aria tira** — indice europeo, PM2.5/PM10, ozono e i pollini in stagione.
 - **Il cielo come interfaccia** — lo sfondo cambia con la condizione e con l'ora: si capisce
   che tempo fa prima ancora di leggere.
+- **Ogni numero si può interrogare** — tocca il consiglio e ti dice da quali dati nasce, con
+  la taratura lì sotto per correggerlo; tocca un'ora, una barra di pioggia, il vento o l'aria
+  e sale un pannello con il dettaglio. Niente è un vicolo cieco.
 
 I dati vengono da [Open-Meteo](https://open-meteo.com): nessuna chiave, nessun account,
 modello ad alta risoluzione scelto automaticamente per la località.

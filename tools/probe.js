@@ -136,6 +136,24 @@ async function main() {
              [...document.querySelectorAll('.air-parts span')].map(n => n.textContent).join(' ') : 'non ancora',
       pollini: [...document.querySelectorAll('.pollen-row')].map(n => n.textContent.trim()),
       modelli: el('#trust') && !el('#trust').hidden ? el('#trust').textContent : 'non ancora',
+      pannello: (() => {
+        const ds = el('#dsheet');
+        if (!ds || ds.hidden) return 'chiuso';
+        return {
+          occhiello: el('.ds-kicker') && el('.ds-kicker').textContent,
+          titolo: el('.ds-title') && el('.ds-title').textContent,
+          apertura: el('.ds-lead') && el('.ds-lead').textContent,
+          perche: [...document.querySelectorAll('.ds-why-item')].map(n => n.textContent.trim()),
+          righe: [...document.querySelectorAll('.ds-row')].map(n =>
+            [...n.children].map(c => c.textContent).join(' | ')),
+          sezioni: [...document.querySelectorAll('.ds-sec h4')].map(n => n.textContent),
+          barre: document.querySelectorAll('.ds-chart div').length,
+          bussola: !!el('.ds-compass'),
+          cursore: !!ds.querySelector('input[type=range]'),
+          modelli: [...document.querySelectorAll('.ds-model-row')].map(n =>
+            [...n.children].map(c => c.textContent).join(' ')).slice(0, 4),
+        };
+      })(),
       giornoAperto: (() => {
         const dv = el('#dayview');
         if (!dv || dv.hidden) return 'chiuso';

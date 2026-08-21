@@ -1,142 +1,91 @@
 # Meteo
 
-Un'app meteo che risponde a due domande invece di mostrare tabelle:
+Un'app meteo fatta su misura, che risponde a due domande invece di mostrare tabelle:
 **come mi vesto oggi** e **quando piove**.
 
-È una pagina web autonoma (PWA): si installa sulla schermata home
-dell'iPhone come una vera app, si apre a tutto schermo e funziona
-anche senza rete, mostrando l'ultima previsione scaricata e
-dichiarando quanto è vecchia.
+È una pagina web installabile sulla schermata Home dell'iPhone, dove si comporta come
+un'app vera: si apre a schermo intero, funziona senza rete mostrando l'ultimo dato
+scaricato, e non ha nulla da mantenere dietro le quinte.
 
-Lo sfondo **è** il meteo: il cielo cambia con la condizione e con
-l'ora, così si capisce che tempo fa prima ancora di leggere.
+## Cosa fa
 
-## Come funziona
+- **Come mi vesto** — un consiglio in chiaro («Felpa e giacca leggera. Ombrello dalle 17»)
+  calcolato sulla temperatura *percepita* minima nelle ore in cui sei fuori, da adesso al
+  tramonto. Non sulla media del giorno: ci si veste per il momento più freddo.
+  Un cursore *freddoloso ↔ caldoso* sposta le soglie sulla tua percezione.
+- **Quando piove** — nowcast a passi di 15 minuti sulle prossime 3 ore, con l'ora in cui
+  inizia, quando fa una pausa e quando riprende.
+- **Che cosa cambia** — avvisi in cima solo quando serve: temporali, gelo notturno, caldo
+  forte, raffiche, sbalzi bruschi fra oggi e domani, prima pioggia dopo giorni asciutti.
+- **Quanto fidarsi** — tre centri di calcolo indipendenti (ICON, ECMWF, GFS) sullo stesso
+  giorno: quanto si discostano fra loro è la misura più onesta di quanto valga la previsione.
+- **Che aria tira** — indice europeo, PM2.5/PM10, ozono e i pollini in stagione.
+- **Il cielo come interfaccia** — lo sfondo cambia con la condizione e con l'ora: si capisce
+  che tempo fa prima ancora di leggere.
 
-**Il verdetto sull'abbigliamento** non guarda la temperatura media
-del giorno ma il *minimo percepito nelle ore in cui sei fuori*, dalla
-adesso al tramonto — perché ci si veste per il momento più freddo,
-non per la media. Dopo il tramonto la finestra scivola all'alba del
-giorno dopo. Alla scala di base si aggiungono i modificatori:
-ombrello se la probabilità supera il 40% o si accumula mezzo
-millimetro, "cipolla" se l'escursione supera i 9°, cappuccio al posto
-dell'ombrello sopra i 45 km/h di raffica.
+I dati vengono da [Open-Meteo](https://open-meteo.com): nessuna chiave, nessun account,
+modello ad alta risoluzione scelto automaticamente per la località.
 
-**La taratura personale** è il cursore *freddoloso ↔ caldoso* nelle
-impostazioni: sposta le soglie di 1,5° per tacca. Se l'app ti mette
-la giacca e tu sudi, spostalo verso "caldoso" e smette di farlo.
-È la parte che la rende tua e che nessuna app del negozio ti dà.
+## Pubblicarla
 
-**La pioggia nell'immediato** usa le previsioni a 15 minuti del
-modello ad alta risoluzione disponibile sulla località. Attenzione a
-cosa può e non può fare: risponde bene a *"nella prossima ora
-piove?"*, **non è un radar** e non è affidabile sul minuto esatto.
-Quando il modello non prevede acqua ma la probabilità oraria resta
-alta (rovesci sparsi) l'app lo dichiara invece di promettere sereno.
+Serve HTTPS: senza, iOS non permette né l'installazione sulla Home né il funzionamento
+offline. Con GitHub Pages:
 
-## L'aspetto
+1. crea il repository e carica questi file;
+2. **Settings → Pages → Source: Deploy from a branch**, ramo `main`, cartella `/ (root)`;
+3. apri l'indirizzo dal telefono, poi **Condividi → Aggiungi alla schermata Home**.
 
-Dodici cieli — notte serena e nuvolosa, alba, tramonto, sereno,
-poco nuvoloso, coperto, nebbia, pioggia di giorno e di notte,
-temporale, neve — costruiti come gradienti a tre stop. Il passaggio
-da uno all'altro è una dissolvenza di quasi un secondo, ottenuta
-registrando i colori come proprietà tipizzate (`@property`): senza
-quello i gradienti scatterebbero di colpo. La barra di stato di iOS
-si intona al colore del cielo in cima.
+Al primo avvio l'app chiede le località: cercale dalla barra in Impostazioni.
+Restano salvate nel telefono.
 
-Sopra ogni cielo passa un velo scuro graduato, più forte sui cieli
-chiari, che tiene il testo bianco leggibile ovunque; a cielo sereno
-di notte si accendono le stelle, quando piove scendono gocce,
-quando nevica fiocchi — animazioni in solo CSS che si fermano da sé
-se il sistema chiede meno movimento.
+## Allerte sul telefono
 
-Il carattere è **Manrope** (licenza SIL Open Font, in `fonts/`,
-24 kB per il subset latino): peso 200 per le temperature grandi,
-700 per il verdetto. È incluso nel repository, quindi la resa non
-cambia offline né dipende da servizi esterni.
+Le notifiche arrivano da un'azione schedulata su GitHub, non dall'app. Il cron non è
+puntuale (5-15 minuti di ritardo): va bene per gli avvisi, non per il «piove fra venti
+minuti». Configurazione, una volta sola:
 
-## I dati
+1. genera le chiavi: `node tools/make-vapid.js` — la pubblica va in `app.js`
+   (`VAPID_PUBLIC`), la privata resta in `vapid-private.txt`, che git ignora;
+2. su GitHub, **Settings → Secrets and variables → Actions**, crea il secret
+   `VAPID_PRIVATE` con quel valore;
+3. apri l'app *installata sulla Home*, Impostazioni → **Attiva le allerte**, concedi il
+   permesso e copia il codice che compare;
+4. crea un secondo secret chiamato `ALERT_CONFIG` e incollacelo dentro.
 
-[Open-Meteo](https://open-meteo.com): niente chiave, niente account,
-niente registrazione. Una sola chiamata per località restituisce
-condizione attuale, quarti d'ora, ore e sette giorni. La ricerca
-delle città usa il loro geocoding. Le località scelte e le previsioni
-restano sul dispositivo (`localStorage`): nessun server intermedio,
-nessun account, nessun dato che esce dal telefono.
+Da lì il workflow gira ogni ora nelle ore diurne e scrive solo quando c'è qualcosa di
+serio, senza ripetere lo stesso avviso due volte nello stesso giorno.
 
-## Pubblicarla su GitHub Pages
+> GitHub sospende i workflow schedulati nei repository fermi da 60 giorni: basta un commit
+> qualsiasi per riattivarli.
 
-Serve HTTPS: senza, iOS non permette né l'installazione sulla home né
-il funzionamento offline. Aprire il file dal Finder non basta.
+## Strumenti
 
-```bash
-# 1. crea un repository vuoto su github.com (senza README)
-# 2. dalla cartella del progetto:
-git remote add origin https://github.com/TUO-UTENTE/meteo.git
-git push -u origin main
-# 3. su GitHub: Settings → Pages → Source: "Deploy from a branch"
-#    → Branch: main / (root) → Save
-```
-
-Dopo un paio di minuti l'app è su
-`https://TUO-UTENTE.github.io/meteo/`.
-
-Per aggiornarla in seguito: `git add -A && git commit -m "..." && git push`.
-
-## Installarla sull'iPhone
-
-Apri l'indirizzo **in Safari** (non Chrome), tocca il pulsante di
-condivisione e scegli *Aggiungi a Home*. Da quel momento l'icona apre
-l'app a tutto schermo. Al primo avvio aggiungi le tue località dalla
-rotella in alto a destra.
-
-## Provarla sul Mac
-
-```bash
-python3 -m http.server 8765
-# poi apri http://127.0.0.1:8765
-```
-
-## Verifiche
-
-```bash
-node tools/test-logic.js
-```
-
-Esercita la logica su dati veri di sei città in fusi e stagioni
-diverse (compreso l'emisfero sud e il sole di mezzanotte islandese) e
-su casi costruiti a mano: ogni fascia della scala d'abbigliamento,
-l'effetto del cursore, pioggia in arrivo / in corso / assente, e il
-passaggio a "domani" dopo il tramonto.
-
-## Struttura
-
-| File | Cosa contiene |
+| Comando | Cosa fa |
 |---|---|
-| `index.html` | struttura della pagina e libreria di icone SVG |
-| `styles.css` | i dodici cieli, gli effetti e tutta l'impaginazione |
-| `fonts/` | Manrope variabile e la sua licenza |
-| `app.js` | dati, logica del verdetto, nowcast, rendering |
-| `sw.js` | funzionamento offline (rete per prima, cache di scorta) |
-| `manifest.webmanifest` | nome, icone e modalità a tutto schermo |
-| `tools/make-icons.js` | rigenera le icone PNG senza dipendenze |
-| `tools/test-logic.js` | banco di prova della logica |
+| `node tools/test-logic.js` | Banco di prova della logica su dati veri e casi costruiti: soglie d'abbigliamento, nowcast, avvisi, fusi orari, cieli |
+| `node tools/probe.js [--full]` | Apre l'app in un iPhone virtuale, misura il layout e ne salva la fotografia |
+| `node tools/make-icons.js` | Rigenera le icone PNG |
+| `node tools/send-alerts.js --dry` | Mostra quali allerte partirebbero, senza inviarle |
+| `node tools/make-vapid.js` | Genera le chiavi delle notifiche |
 
-## Personalizzare
+Per provarla in locale: `python3 -m http.server 8765` e apri `http://127.0.0.1:8765`.
 
-Le manopole stanno tutte in cima ad `app.js`, nella sezione
-*Tabelle e soglie*:
+## Com'è fatta
 
-- `LAYERS` — la scala d'abbigliamento: cambia le frasi con le tue
-  parole o sposta le soglie in gradi.
-- `POP_UMBRELLA`, `MM_UMBRELLA` — quando scatta l'ombrello.
-- `GUST_WINDY` — la raffica oltre cui l'ombrello è controproducente.
-- `SWING_LAYERED` — l'escursione che fa scattare il consiglio "a cipolla".
-- `CHILL_STEP` — quanto pesa ogni tacca del cursore.
+Nessuna dipendenza, nessun passo di build: file statici che il browser esegue così come sono.
 
-I cieli si cambiano in `styles.css`, nel blocco *i dodici cieli*:
-ogni riga è una scena con tre colori e l'intensità del velo. Quale
-scena mostrare lo decide `skyScene()` in `app.js`.
+```
+index.html     struttura e libreria di icone SVG
+styles.css     dodici cieli, tipografia, layout verticale
+app.js         dati, logica dei consigli, rendering
+sw.js          funzionamento offline e ricezione delle allerte
+fonts/         Manrope (SIL Open Font License)
+tools/         prove e utilità, non servono all'app in esecuzione
+```
 
-Dopo aver modificato i file, ricaricando la pagina vedi subito il
-risultato: il service worker prova sempre la rete per prima.
+Il cuore è in `app.js`, diviso in sezioni numerate: tabelle e soglie, memoria del
+dispositivo, tempo, rete, finestra della giornata, il verdetto, la pioggia immediata,
+avvisi e affidabilità, il cielo, rendering, caricamento, impostazioni.
+
+Le soglie stanno tutte in cima al file, con i nomi in chiaro: cambiarle è il modo previsto
+per adattare l'app a sé.

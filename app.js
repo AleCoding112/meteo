@@ -3,9 +3,19 @@
    Dati: Open-Meteo (nessuna chiave, nessun account).
    ============================================================ */
 
-const VERSION = '2.0.0';
+const VERSION = '3.0.0';
 const API      = 'https://api.open-meteo.com/v1/forecast';
 const GEOCODE  = 'https://geocoding-api.open-meteo.com/v1/search';
+const AIR      = 'https://air-quality-api.open-meteo.com/v1/air-quality';
+
+/* Tre centri di calcolo indipendenti: il tedesco ad alta risoluzione,
+   l'europeo e l'americano. Quanto si discostano fra loro è la misura
+   più onesta di quanto valga la previsione. */
+const MODELS = ['icon_seamless', 'ecmwf_ifs025', 'gfs_seamless'];
+
+/* Chiave pubblica delle notifiche. La corrispondente privata vive
+   solo fra i Secrets del repo e firma gli invii. */
+const VAPID_PUBLIC = 'BK-x-91iwRSuCarnTsqhsSS1Uhfp7PMVGSoTkzEh5t82USzbYbxCpJv_wQS-5ec4EFjgwy6Ht_OKEUxVhXxdMBU';
 
 /* ---------- 1. Tabelle e soglie ---------------------------- */
 
@@ -37,6 +47,31 @@ const GUST_WINDY    = 45;   // km/h: sopra, l'ombrello è controproducente
 const UV_STRONG     = 7;
 const SWING_LAYERED = 9;    // °C di escursione che giustificano la cipolla
 const RAIN_ON       = 0.1;  // mm/15min: sotto questa soglia non è pioggia
+
+/* Soglie degli avvisi: solo cose che cambiano davvero la giornata. */
+const JUMP_DEG    = 6;    // °C di scarto fra oggi e domani che vale un avviso
+const FROST_DEG   = 0;    // gelo notturno
+const HEAT_DEG    = 33;   // caldo che pesa
+const GALE_KMH    = 60;   // raffiche da mettere in guardia
+const AQI_BAD     = 60;   // indice europeo: da qui in su si sente
+
+/* Indice europeo della qualità dell'aria */
+const AQI_BANDS = [
+  [ 20, 'Buona'], [ 40, 'Discreta'], [ 60, 'Media'],
+  [ 80, 'Scarsa'], [100, 'Molto scarsa'], [Infinity, 'Pessima'],
+];
+
+/* Pollini: nome italiano e soglie basso / moderato / alto in grani/m³,
+   secondo le fasce usate in aerobiologia. */
+const POLLEN = [
+  ['alder_pollen',   'Ontano',      [10, 50, 200]],
+  ['birch_pollen',   'Betulla',     [10, 50, 200]],
+  ['grass_pollen',   'Graminacee',  [15, 30, 100]],
+  ['olive_pollen',   'Olivo',       [15, 50, 200]],
+  ['mugwort_pollen', 'Artemisia',   [ 5, 15,  50]],
+  ['ragweed_pollen', 'Ambrosia',    [ 5, 11,  50]],
+];
+const POLLEN_WORDS = ['assente', 'basso', 'moderato', 'alto', 'molto alto'];
 
 /* Codici WMO -> icona + descrizione */
 function wmo(code, isDay = 1) {
@@ -90,7 +125,7 @@ let inflight = null;   // AbortController della richiesta in corso
    stessa scala sommando l'offset della località. Così l'app
    resta corretta anche guardando una città in un altro fuso. */
 
-const tsOf   = s => Date.parse(s + 'Z');
+const tsOf   = s => Date.parse(s.length === 10 ? s + 'T00:00:00Z' : s + 'Z');
 const nowTs  = d => Date.now() + (d.utc_offset_seconds || 0) * 1000;
 const hhmm   = s => s.slice(11, 16);
 const dayKey = s => s.slice(0, 10);
@@ -114,6 +149,7 @@ async function fetchForecast(place, signal) {
     daily:     'weather_code,temperature_2m_max,temperature_2m_min,precipitation_sum,precipitation_probability_max,sunrise,sunset,uv_index_max,wind_gusts_10m_max',
     timezone:  'auto',
     forecast_days: '7',
+    past_days: '5',            /* serve a dire "prima pioggia dopo N giorni" */
     forecast_minutely_15: '20',
   });
   const res = await fetch(API + '?' + q, { signal });
@@ -121,6 +157,47 @@ async function fetchForecast(place, signal) {
   const data = await res.json();
   if (data.error) throw new Error(data.reason || 'Risposta non valida');
   return data;
+}
+
+async function fetchAir(place, signal) {
+  const q = new URLSearchParams({
+    latitude: place.lat, longitude: place.lon,
+    current: 'european_aqi,pm2_5,pm10,ozone,nitrogen_dioxide,'
+           + POLLEN.map(p => p[0]).join(','),
+    timezone: 'auto', forecast_days: '1',
+  });
+  const res = await fetch(AIR + '?' + q, { signal });
+  if (!res.ok) throw new Error('aria non disponibile');
+  return res.json();
+}
+
+async function fetchSpread(place, signal) {
+  const q = new URLSearchParams({
+    latitude: place.lat, longitude: place.lon,
+    daily: 'temperature_2m_max,precipitation_sum,precipitation_probability_max',
+    models: MODELS.join(','),
+    timezone: 'auto', forecast_days: '7',
+  });
+  const res = await fetch(API + '?' + q, { signal });
+  if (!res.ok) throw new Error('modelli non disponibili');
+  return res.json();
+}
+
+/* Le tre richieste partono insieme: se aria o modelli non rispondono
+   l'app resta utile lo stesso, semplicemente senza quelle sezioni. */
+async function fetchBundle(place, signal) {
+  const [f, air, spread] = await Promise.allSettled([
+    fetchForecast(place, signal),
+    fetchAir(place, signal),
+    fetchSpread(place, signal),
+  ]);
+  if (f.status !== 'fulfilled') throw f.reason;
+  return {
+    v: 3,
+    f: f.value,
+    air:    air.status    === 'fulfilled' ? air.value    : null,
+    spread: spread.status === 'fulfilled' ? spread.value : null,
+  };
 }
 
 async function searchPlaces(name, signal) {
@@ -138,17 +215,18 @@ async function searchPlaces(name, signal) {
 function daylightWindow(data) {
   const now = nowTs(data);
   const d = data.daily;
-  for (let i = 0; i < d.time.length; i++) {
+  const ti = todayIndex(data);   /* i giorni già trascorsi non si consigliano */
+  for (let i = ti; i < d.time.length; i++) {
     const rise = tsOf(d.sunrise[i]);
     const set  = tsOf(d.sunset[i]);
     if (now < set - 30 * 60000) {
       const started = now > rise;
       return {
         from: Math.max(now, rise), to: set, dayIndex: i,
-        label: i === 0
+        label: i === ti
           ? (started ? 'fino al tramonto' : 'oggi, dall’alba al tramonto')
           : 'domani, dall’alba al tramonto',
-        tomorrow: i > 0,
+        tomorrow: i > ti,
       };
     }
   }
@@ -297,7 +375,14 @@ function rainNow(data) {
     if (end === -1) {
       return { pts, peak, dry: false, text: `${word} in corso, ${strength}. Non smette entro ${spanTxt}.` };
     }
-    return { pts, peak, dry: false, text: `${word} in corso. Dovrebbe smettere verso le ${hhmm(pts[end].iso)}.` };
+    /* dire solo "smette" quando poi ricomincia sarebbe mezza verità */
+    const again = pts.findIndex((p, i) => i > end && p.mm >= RAIN_ON);
+    return {
+      pts, peak, dry: false,
+      text: again === -1
+        ? `${word} in corso. Dovrebbe smettere verso le ${hhmm(pts[end].iso)}.`
+        : `${word} in corso: pausa verso le ${hhmm(pts[end].iso)}, poi riprende verso le ${hhmm(pts[again].iso)}.`,
+    };
   }
 
   const inMin = minutesBetween(now, pts[wetIdx].t);
@@ -306,6 +391,145 @@ function rainNow(data) {
     pts, peak, dry: false,
     text: `${word} ${strength} ${when}, verso le ${hhmm(pts[wetIdx].iso)}.`,
   };
+}
+
+/* ---------- 7a. Avvisi, accordo fra modelli, aria ----------
+   Tre domande a cui i numeri grezzi non rispondono: che cosa
+   sta cambiando, quanto vale la previsione, che aria si respira. */
+
+/* Con past_days la giornata di oggi non è più la prima della lista. */
+function todayIndex(data) {
+  const d = data.daily, now = nowTs(data);
+  for (let i = 0; i < d.time.length; i++) {
+    if (now < tsOf(d.time[i]) + 24 * 3600000) return i;
+  }
+  return 0;
+}
+
+const AQI_WORD = v => (AQI_BANDS.find(b => v <= b[0]) || AQI_BANDS[5])[1];
+
+function pollenLevel(value, steps) {
+  if (!value || value < 1) return 0;
+  if (value < steps[0]) return 1;
+  if (value < steps[1]) return 2;
+  if (value < steps[2]) return 3;
+  return 4;
+}
+
+/* --- che cosa sta cambiando --- */
+function changeAlerts(bundle) {
+  const data = bundle.f, d = data.daily;
+  const ti = todayIndex(data), now = nowTs(data);
+  const out = [];
+  const add = (rank, kind, ico, text) => out.push({ rank, kind, ico, text });
+  const round = v => Math.round(v);
+  const todayStr = d.time[ti];
+
+  /* temporale in arrivo */
+  const storm = hoursIn(data, now, now + 24 * 3600000).find(h => isStormCode(h.code));
+  if (storm) {
+    const inMin = minutesBetween(now, storm.t);
+    const when = dayKey(storm.iso) === todayStr ? 'oggi' : 'domani';
+    add(1, 'warm', 'alert', inMin <= 30
+      ? 'Temporale in corso o imminente.'
+      : `Temporale ${when} verso le ${hhmm(storm.iso)}.`);
+  }
+
+  /* gelo notturno */
+  for (let i = ti; i < Math.min(ti + 2, d.time.length); i++) {
+    if (d.temperature_2m_min[i] <= FROST_DEG) {
+      add(2, 'cool', 'down', `Gelo ${i === ti ? 'stanotte' : 'domani notte'}, minima ${round(d.temperature_2m_min[i])}°.`);
+      break;
+    }
+  }
+
+  /* caldo forte */
+  for (let i = ti; i < Math.min(ti + 2, d.time.length); i++) {
+    if (d.temperature_2m_max[i] >= HEAT_DEG) {
+      add(3, 'hot', 'up', `Caldo forte ${i === ti ? 'oggi' : 'domani'}, fino a ${round(d.temperature_2m_max[i])}°.`);
+      break;
+    }
+  }
+
+  /* raffiche */
+  const gust = d.wind_gusts_10m_max && d.wind_gusts_10m_max[ti];
+  if (gust >= GALE_KMH) add(3, 'warm', 'wind', `Raffiche fino a ${round(gust)} km/h oggi.`);
+
+  /* sbalzo fra oggi e domani */
+  const a = d.temperature_2m_max[ti], b = d.temperature_2m_max[ti + 1];
+  if (a != null && b != null && Math.abs(b - a) >= JUMP_DEG) {
+    add(4, b < a ? 'cool' : 'hot', b < a ? 'down' : 'up',
+        `Domani ${round(Math.abs(b - a))}° in ${b < a ? 'meno' : 'più'} di oggi.`);
+  }
+
+  /* la prima pioggia dopo una serie di giorni asciutti */
+  let dryRun = 0;
+  for (let i = ti - 1; i >= 0; i--) {
+    if ((d.precipitation_sum[i] ?? 0) < 1) dryRun++; else break;
+  }
+  if (dryRun >= 4) {
+    for (let i = ti; i < Math.min(ti + 3, d.time.length); i++) {
+      if ((d.precipitation_sum[i] ?? 0) >= 2) {
+        const when = i === ti ? 'oggi' : i === ti + 1 ? 'domani' : weekday(d.time[i], false);
+        add(5, 'cool', 'drop', `Prima pioggia dopo ${dryRun} giorni asciutti: ${when}.`);
+        break;
+      }
+    }
+  }
+
+  /* aria e pollini, solo quando pesano */
+  const air = bundle.air && bundle.air.current;
+  if (air) {
+    if (air.european_aqi >= AQI_BAD) {
+      add(4, 'warm', 'haze', `Aria ${AQI_WORD(air.european_aqi).toLowerCase()} oggi, indice ${round(air.european_aqi)}.`);
+    }
+    const worst = POLLEN
+      .map(([k, name, steps]) => ({ name, lvl: pollenLevel(air[k], steps) }))
+      .sort((x, y) => y.lvl - x.lvl)[0];
+    if (worst && worst.lvl >= 3) {
+      add(4, 'warm', 'haze', `${worst.name}: pollini a livello ${POLLEN_WORDS[worst.lvl]}.`);
+    }
+  }
+
+  return out.sort((x, y) => x.rank - y.rank).slice(0, 2);
+}
+
+/* --- quanto vale la previsione ---
+   Tre modelli sullo stesso giorno: più si discostano, meno vale.
+   Le scale (2.5°, 4 mm, 40 punti di probabilità) sono tarate su
+   quanto normalmente divergono già al primo giorno. */
+function modelSpread(bundle) {
+  const sp = bundle.spread;
+  if (!sp || !sp.daily) return null;
+  const d = sp.daily;
+  const range = a => Math.max(...a) - Math.min(...a);
+  const map = new Map();
+  for (let i = 0; i < d.time.length; i++) {
+    const pick = k => MODELS.map(m => d[k + '_' + m] && d[k + '_' + m][i]).filter(v => v != null);
+    const T = pick('temperature_2m_max');
+    const P = pick('precipitation_sum');
+    const O = pick('precipitation_probability_max');
+    if (T.length < 2) continue;
+    const u = Math.max(
+      range(T) / 2.5,
+      P.length > 1 ? range(P) / 4 : 0,
+      O.length > 1 ? range(O) / 40 : 0
+    );
+    map.set(d.time[i], { u, level: u < 1 ? 3 : u < 2 ? 2 : 1, dt: range(T) });
+  }
+  return map.size ? map : null;
+}
+
+function trustSentence(map, data) {
+  const d = data.daily, ti = todayIndex(data);
+  let shaky = -1;
+  for (let i = ti; i < d.time.length; i++) {
+    const e = map.get(d.time[i]);
+    if (e && e.level === 1) { shaky = i; break; }
+  }
+  if (shaky === -1) return 'I tre modelli concordano su tutta la settimana: previsione solida.';
+  if (shaky <= ti + 1) return 'I tre modelli <b>non concordano già da subito</b>: prendi anche i prossimi giorni con cautela.';
+  return `I tre modelli vanno d'accordo fino a <b>${weekday(d.time[shaky - 1], false)}</b>; da lì in poi divergono e la previsione è solo indicativa.`;
 }
 
 /* ---------- 7b. Il cielo -----------------------------------
@@ -372,6 +596,7 @@ const icon = (name, cls) => {
 function showState(which, msg) {
   ['state-loading', 'state-empty', 'state-error'].forEach(id => { $(id).hidden = id !== which; });
   ['hero', 'hours-card', 'days-card'].forEach(id => { $(id).hidden = which !== null; });
+  if (which !== null) $('air-card').hidden = true;   /* in positivo decide renderAir */
   $('stamp').hidden = which !== null;
   if (msg) $('error-msg').textContent = msg;
 }
@@ -389,13 +614,89 @@ function renderPlaces() {
   if (active) active.scrollIntoView({ inline: 'nearest', block: 'nearest' });
 }
 
+function renderAlerts(list) {
+  const box = $('alerts');
+  box.textContent = '';
+  box.hidden = !list.length;
+  list.forEach(a => {
+    const row = el('div', 'alert ' + a.kind);
+    row.appendChild(icon(a.ico || 'alert'));
+    row.appendChild(el('span', null, a.text));
+    box.appendChild(row);
+  });
+}
+
+function renderAir(air) {
+  const cur = air && air.current;
+  const card = $('air-card');
+  card.hidden = !cur || cur.european_aqi == null;
+  if (card.hidden) return;
+
+  const box = $('air');
+  box.textContent = '';
+  const aqi = cur.european_aqi;
+
+  const top = el('div', 'air-top');
+  top.appendChild(el('div', 'air-label', AQI_WORD(aqi)));
+  top.appendChild(el('div', 'air-value', 'indice ' + Math.round(aqi)));
+  box.appendChild(top);
+
+  const scale = el('div', 'air-scale');
+  const mark = el('i');
+  mark.style.left = Math.max(0, Math.min(100, aqi / 110 * 100)) + '%';
+  scale.appendChild(mark);
+  box.appendChild(scale);
+
+  const parts = el('div', 'air-parts');
+  [['PM2.5', cur.pm2_5], ['PM10', cur.pm10], ['O₃', cur.ozone], ['NO₂', cur.nitrogen_dioxide]]
+    .filter(pair => pair[1] != null)
+    .forEach(([k, v]) => {
+      const sp = el('span');
+      sp.appendChild(document.createTextNode(k + ' '));
+      sp.appendChild(el('b', null, Math.round(v)));
+      parts.appendChild(sp);
+    });
+  box.appendChild(parts);
+
+  /* i pollini contano solo quando ci sono: fuori stagione la
+     sezione resta una riga sola invece di sei zeri */
+  const active = POLLEN
+    .map(([k, name, steps]) => ({ name, steps, v: cur[k] ?? 0, lvl: pollenLevel(cur[k], steps) }))
+    .filter(x => x.lvl >= 1)
+    .sort((a, b) => b.lvl - a.lvl || b.v - a.v)
+    .slice(0, 3);
+
+  if (!active.length) {
+    box.appendChild(el('p', 'air-quiet', 'Nessun polline rilevante in questo momento.'));
+    return;
+  }
+  const list = el('div', 'pollen');
+  active.forEach(x => {
+    const row = el('div', 'pollen-row' + (x.lvl >= 3 ? ' high' : ''));
+    row.appendChild(el('div', 'pollen-name', x.name));
+    row.appendChild(el('div', 'pollen-level', POLLEN_WORDS[x.lvl]));
+    const bar = el('div', 'pollen-bar');
+    const fill = el('span');
+    fill.style.width = Math.min(100, x.v / x.steps[2] * 100) + '%';
+    bar.appendChild(fill);
+    row.appendChild(bar);
+    list.appendChild(row);
+  });
+  box.appendChild(list);
+}
+
 let lastPlaceId = null;
 
-function renderAll(data, cachedAt) {
+function renderAll(bundle, cachedAt) {
+  const data = bundle.f;
   const chill = store.chill;
   applyScene(skyScene(data));
   const advice = dressAdvice(data, chill);
   const cur = data.current;
+  const ti = todayIndex(data);
+
+  renderAlerts(changeAlerts(bundle));
+  renderAir(bundle.air);
 
   /* verdetto */
   if (advice) {
@@ -411,7 +712,7 @@ function renderAll(data, cachedAt) {
   nowIco.replaceWith(Object.assign(icon(ic, 'now-ico'), { id: 'now-icon' }));
   $('now-temp').textContent = Math.round(cur.temperature_2m);
   $('now-feels').textContent = 'percepiti ' + Math.round(cur.apparent_temperature) + '°';
-  const di = advice ? advice.window.dayIndex : 0;
+  const di = advice ? advice.window.dayIndex : ti;
   $('now-range').textContent =
     `min ${Math.round(data.daily.temperature_2m_min[di])}° · max ${Math.round(data.daily.temperature_2m_max[di])}°`;
 
@@ -419,15 +720,15 @@ function renderAll(data, cachedAt) {
   const facts = $('facts');
   facts.textContent = '';
   const d0 = data.daily, wi = advice ? advice.window : null;
-  const di2 = wi ? wi.dayIndex : 0;
+  const di2 = wi ? wi.dayIndex : ti;
   const nowMs = nowTs(data);
-  const sunUp = wi && !wi.tomorrow && nowMs < tsOf(d0.sunset[0]);
+  const sunUp = wi && !wi.tomorrow && nowMs < tsOf(d0.sunset[ti]);
   const rows = [
     ['Vento', Math.round(cur.wind_speed_10m) + ' <small>km/h</small>'],
     ['Raffiche', Math.round(cur.wind_gusts_10m ?? 0) + ' <small>km/h</small>'],
     ['Umidità', Math.round(cur.relative_humidity_2m ?? 0) + '<small>%</small>'],
     sunUp
-      ? ['Tramonto', hhmm(d0.sunset[0])]
+      ? ['Tramonto', hhmm(d0.sunset[ti])]
       : ['Alba', hhmm(d0.sunrise[Math.min(di2, d0.sunrise.length - 1)])],
   ];
   rows.forEach(([k, v]) => {
@@ -477,16 +778,21 @@ function renderAll(data, cachedAt) {
     box.appendChild(c);
   });
 
-  /* giorni */
+  /* giorni: l'archivio dei giorni scorsi serve solo agli avvisi,
+     qui si parte da oggi */
   const d = data.daily;
-  const lo = Math.min(...d.temperature_2m_min);
-  const hi = Math.max(...d.temperature_2m_max);
+  const spread = modelSpread(bundle);
+  const idx = [];
+  for (let i = ti; i < d.time.length; i++) idx.push(i);
+  const lo = Math.min(...idx.map(i => d.temperature_2m_min[i]));
+  const hi = Math.max(...idx.map(i => d.temperature_2m_max[i]));
   const span = Math.max(hi - lo, 1);
   const list = $('days');
   list.textContent = '';
-  d.time.forEach((iso, i) => {
+  idx.forEach(i => {
+    const iso = d.time[i];
     const row = el('div', 'day');
-    const nm = el('div', 'day-name' + (i === 0 ? ' today' : ''), i === 0 ? 'oggi' : weekday(iso));
+    const nm = el('div', 'day-name' + (i === ti ? ' today' : ''), i === ti ? 'oggi' : weekday(iso));
     row.appendChild(nm);
     row.appendChild(icon(wmo(d.weather_code[i], 1)[0], 'day-ico'));
     const pop = d.precipitation_probability_max[i];
@@ -499,8 +805,24 @@ function renderAll(data, cachedAt) {
     bar.appendChild(fill);
     row.appendChild(bar);
     row.appendChild(el('div', 'day-max', Math.round(d.temperature_2m_max[i]) + '°'));
+
+    /* quanto i tre modelli concordano su questo giorno */
+    const e = spread && spread.get(iso);
+    const trust = el('div', 'day-trust' + (e && e.level === 1 ? ' low' : ''));
+    for (let k = 0; k < 3; k++) {
+      trust.appendChild(el('i', e && k < e.level ? 'on' : null));
+    }
+    trust.title = e
+      ? 'Scarto fra i modelli: ' + e.dt.toFixed(1) + '°'
+      : 'accordo fra i modelli non disponibile';
+    row.appendChild(trust);
+
     list.appendChild(row);
   });
+
+  const trustLine = $('trust');
+  trustLine.hidden = !spread;
+  if (spread) trustLine.innerHTML = trustSentence(spread, data);
 
   /* aggiornamento */
   const ageMin = Math.round((Date.now() - cachedAt) / 60000);
@@ -533,7 +855,10 @@ async function load(force = false) {
 
   /* Prima la copia salvata: la schermata è utile all'istante,
      anche in metropolitana. Poi si aggiorna da sola. */
-  const cached = store.cacheGet(place.id);
+  /* una copia salvata da una versione precedente dell'app non ha
+     la forma che il rendering si aspetta: si scarta e si riscarica */
+  let cached = store.cacheGet(place.id);
+  if (cached && (!cached.data || cached.data.v !== 3)) { store.cacheDel(place.id); cached = null; }
   const fresh = cached && Date.now() - cached.at < 10 * 60000;
   if (cached) {
     try { renderAll(cached.data, cached.at); } catch (e) { showState('state-loading'); }
@@ -545,9 +870,9 @@ async function load(force = false) {
   if (inflight) inflight.abort();
   inflight = new AbortController();
   try {
-    const data = await fetchForecast(place, inflight.signal);
-    store.cacheSet(place.id, data);
-    renderAll(data, Date.now());
+    const bundle = await fetchBundle(place, inflight.signal);
+    store.cacheSet(place.id, bundle);
+    renderAll(bundle, Date.now());
   } catch (e) {
     if (e.name === 'AbortError') return;
     if (!cached) showState('state-error', navigator.onLine
@@ -702,6 +1027,72 @@ function useGeolocation() {
   );
 }
 
+/* --- allerte push --- */
+
+function b64ToBytes(b64) {
+  const pad = '='.repeat((4 - (b64.length % 4)) % 4);
+  const raw = atob((b64 + pad).replace(/-/g, '+').replace(/_/g, '/'));
+  const out = new Uint8Array(raw.length);
+  for (let i = 0; i < raw.length; i++) out[i] = raw.charCodeAt(i);
+  return out;
+}
+
+const isIOS = () => /iPad|iPhone|iPod/.test(navigator.userAgent);
+const isInstalled = () =>
+  window.navigator.standalone === true ||
+  window.matchMedia('(display-mode: standalone)').matches;
+
+async function enableAlerts() {
+  const btn = $('btn-alerts');
+  const say = (t, reset) => {
+    btn.textContent = t;
+    if (reset) setTimeout(() => { btn.textContent = 'Attiva le allerte'; }, 5000);
+  };
+
+  if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
+    return say('Questo browser non le supporta', true);
+  }
+  /* su iPhone il permesso si può chiedere solo dall'app installata */
+  if (isIOS() && !isInstalled()) {
+    return say('Prima aggiungi l’app alla schermata Home', true);
+  }
+  if (!store.places.length) return say('Aggiungi prima una località', true);
+
+  try {
+    say('Chiedo il permesso…');
+    const perm = await Notification.requestPermission();
+    if (perm !== 'granted') return say('Permesso negato', true);
+
+    const reg = await navigator.serviceWorker.ready;
+    const sub = await reg.pushManager.subscribe({
+      userVisibleOnly: true,
+      applicationServerKey: b64ToBytes(VAPID_PUBLIC),
+    });
+
+    $('alert-code').value = JSON.stringify({
+      sub: sub.toJSON(),
+      places: store.places.map(p => ({ name: p.name, lat: p.lat, lon: p.lon })),
+    });
+    $('alert-setup').hidden = false;
+    say('Permesso concesso — manca solo il codice qui sotto');
+  } catch (e) {
+    say('Non è riuscito: ' + (e.message || e.name), true);
+  }
+}
+
+async function copyAlertCode() {
+  const btn = $('btn-copy');
+  const val = $('alert-code').value;
+  try {
+    await navigator.clipboard.writeText(val);
+    btn.textContent = 'Copiato';
+  } catch (e) {
+    $('alert-code').select();
+    btn.textContent = 'Selezionato: copialo a mano';
+  }
+  setTimeout(() => { btn.textContent = 'Copia il codice'; }, 3000);
+}
+
 function setChill(v) {
   store.chill = v;
   $('chill-val').textContent = CHILL_WORDS[String(v)] || 'equilibrato';
@@ -717,6 +1108,8 @@ $('sheet-backdrop').onclick = closeSheet;
 $('btn-first-add').onclick = openSheet;
 $('btn-retry').onclick = () => load(true);
 $('btn-geo').onclick = useGeolocation;
+$('btn-alerts').onclick = enableAlerts;
+$('btn-copy').onclick = copyAlertCode;
 $('search').oninput = onSearch;
 $('chill').oninput = e => setChill(+e.target.value);
 $('version-line').textContent = 'Versione ' + VERSION;

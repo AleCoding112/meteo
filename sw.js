@@ -3,7 +3,7 @@
    quelle le conserva l'app in localStorage, così sa dirti quanto
    sono vecchie invece di spacciarle per fresche. */
 
-const CACHE = 'meteo-v2';
+const CACHE = 'meteo-v3';
 const SHELL = [
   './',
   './index.html',
@@ -58,4 +58,31 @@ self.addEventListener('fetch', e => {
       try { return await fresh; } catch (e2) { return Response.error(); }
     }
   })());
+});
+
+/* --- allerte ---
+   Arrivano da un'azione schedulata su GitHub, non dall'app:
+   qui si mostrano e basta. */
+
+self.addEventListener('push', e => {
+  let d = {};
+  try { d = e.data ? e.data.json() : {}; } catch (err) { d = { body: e.data && e.data.text() }; }
+  e.waitUntil(self.registration.showNotification(d.title || 'Meteo', {
+    body: d.body || '',
+    icon: './icons/icon-192.png',
+    badge: './icons/icon-192.png',
+    tag: d.tag || 'meteo-allerta',
+    renotify: false,
+    data: { url: './' },
+  }));
+});
+
+self.addEventListener('notificationclick', e => {
+  e.notification.close();
+  e.waitUntil(
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(list => {
+      for (const c of list) if ('focus' in c) return c.focus();
+      return self.clients.openWindow('./');
+    })
+  );
 });

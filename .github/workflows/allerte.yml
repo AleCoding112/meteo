@@ -1,0 +1,48 @@
+name: Allerte meteo
+
+# Controlla le località ogni ora nelle ore in cui serve saperlo.
+# Il cron di GitHub non è puntuale: può arrivare con 5-15 minuti
+# di ritardo, va bene per gli avvisi ma non per il "piove fra poco".
+on:
+  schedule:
+    - cron: '15 4-19 * * *'   # UTC → all'incirca 6-21 in Italia
+  workflow_dispatch:           # e a mano, quando serve provare
+
+permissions:
+  contents: write              # per ricordare cosa ha già mandato
+
+concurrency:
+  group: allerte
+  cancel-in-progress: false
+
+jobs:
+  controlla:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Installa la libreria per le push
+        run: npm install web-push@3 --no-save --no-audit --no-fund
+
+      - name: Cerca allerte e invia
+        env:
+          ALERT_CONFIG:  ${{ secrets.ALERT_CONFIG }}
+          VAPID_PRIVATE: ${{ secrets.VAPID_PRIVATE }}
+          VAPID_SUBJECT: https://github.com/${{ github.repository }}
+        run: node tools/send-alerts.js
+
+      - name: Ricorda cosa ha già segnalato
+        run: |
+          if [ -n "$(git status --porcelain .state)" ]; then
+            git config user.name  "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git add .state
+            git commit -m "Allerte: aggiorna lo storico degli invii"
+            git push
+          else
+            echo "nessun cambiamento da salvare"
+          fi

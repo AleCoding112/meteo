@@ -1,1 +1,4 @@
+vapid-private.txt
+node_modules/
 .DS_Store
+__seed.html

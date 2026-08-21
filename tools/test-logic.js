@@ -247,6 +247,10 @@ const get = async (lat, lon) => {
   ok(a_air.some(x => /Aria scarsa/i.test(x.text)), 'segnala l\'aria scarsa');
   ok(a_poll.some(x => /Ambrosia/.test(x.text)), 'segnala i pollini alti');
   ok(a_none.length === 0, 'in una giornata normale non disturba');
+  ok([a_jump, a_frost, a_heat, a_gale, a_dry, a_air, a_poll]
+      .every(list => list.every(x => !!x.tipo)), 'ogni avviso porta il tipo di evento');
+  ok(new Set([a_jump[0].tipo, a_frost[0].tipo, a_heat[0].tipo, a_gale[0].tipo]).size === 4,
+     'eventi diversi hanno tipi diversi');
 
   /* --- soglie aria e pollini --- */
   console.log('\n══ Scale ══');

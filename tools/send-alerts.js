@@ -113,7 +113,9 @@ async function main() {
     console.log(`${place.name}: ${alerts.length ? alerts.map(a => a.text).join(' | ') : 'niente da segnalare'}`);
 
     for (const a of alerts) {
-      const key = `${today}|${place.name}|${a.text}`;
+      /* la chiave è l'evento, non la frase: lo stesso temporale
+         raccontato in due modi resta un temporale solo. */
+      const key = `${today}|${place.name}|${a.tipo || a.text}`;
       if (seen.has(key)) continue;         // già detto oggi
       seen.add(key);
       toSend.push({ key, title: place.name, body: a.text });

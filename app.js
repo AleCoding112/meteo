@@ -464,7 +464,10 @@ function changeAlerts(bundle) {
   const data = bundle.f, d = data.daily;
   const ti = todayIndex(data), now = nowTs(data);
   const out = [];
-  const add = (rank, kind, ico, text) => out.push({ rank, kind, ico, text });
+  /* il tipo identifica l'evento a prescindere da come lo si racconta:
+     serve a non ripetere la stessa allerta quando la frase cambia
+     ("temporale verso le 12" e poi "temporale in corso"). */
+  const add = (rank, kind, ico, tipo, text) => out.push({ rank, kind, ico, tipo, text });
   const round = v => Math.round(v);
   const todayStr = d.time[ti];
 
@@ -473,7 +476,7 @@ function changeAlerts(bundle) {
   if (storm) {
     const inMin = minutesBetween(now, storm.t);
     const when = dayKey(storm.iso) === todayStr ? 'oggi' : 'domani';
-    add(1, 'warm', 'alert', inMin <= 30
+    add(1, 'warm', 'alert', 'temporale', inMin <= 30
       ? 'Temporale in corso o imminente.'
       : `Temporale ${when} verso le ${hhmm(storm.iso)}.`);
   }
@@ -481,7 +484,7 @@ function changeAlerts(bundle) {
   /* gelo notturno */
   for (let i = ti; i < Math.min(ti + 2, d.time.length); i++) {
     if (d.temperature_2m_min[i] <= FROST_DEG) {
-      add(2, 'cool', 'down', `Gelo ${i === ti ? 'stanotte' : 'domani notte'}, minima ${round(d.temperature_2m_min[i])}°.`);
+      add(2, 'cool', 'down', 'gelo', `Gelo ${i === ti ? 'stanotte' : 'domani notte'}, minima ${round(d.temperature_2m_min[i])}°.`);
       break;
     }
   }
@@ -489,19 +492,19 @@ function changeAlerts(bundle) {
   /* caldo forte */
   for (let i = ti; i < Math.min(ti + 2, d.time.length); i++) {
     if (d.temperature_2m_max[i] >= HEAT_DEG) {
-      add(3, 'hot', 'up', `Caldo forte ${i === ti ? 'oggi' : 'domani'}, fino a ${round(d.temperature_2m_max[i])}°.`);
+      add(3, 'hot', 'up', 'caldo', `Caldo forte ${i === ti ? 'oggi' : 'domani'}, fino a ${round(d.temperature_2m_max[i])}°.`);
       break;
     }
   }
 
   /* raffiche */
   const gust = d.wind_gusts_10m_max && d.wind_gusts_10m_max[ti];
-  if (gust >= GALE_KMH) add(3, 'warm', 'wind', `Raffiche fino a ${round(gust)} km/h oggi.`);
+  if (gust >= GALE_KMH) add(3, 'warm', 'wind', 'raffiche', `Raffiche fino a ${round(gust)} km/h oggi.`);
 
   /* sbalzo fra oggi e domani */
   const a = d.temperature_2m_max[ti], b = d.temperature_2m_max[ti + 1];
   if (a != null && b != null && Math.abs(b - a) >= JUMP_DEG) {
-    add(4, b < a ? 'cool' : 'hot', b < a ? 'down' : 'up',
+    add(4, b < a ? 'cool' : 'hot', b < a ? 'down' : 'up', 'sbalzo',
         `Domani ${round(Math.abs(b - a))}° in ${b < a ? 'meno' : 'più'} di oggi.`);
   }
 
@@ -514,7 +517,7 @@ function changeAlerts(bundle) {
     for (let i = ti; i < Math.min(ti + 3, d.time.length); i++) {
       if ((d.precipitation_sum[i] ?? 0) >= 2) {
         const when = i === ti ? 'oggi' : i === ti + 1 ? 'domani' : weekday(d.time[i], false);
-        add(5, 'cool', 'drop', `Prima pioggia dopo ${dryRun} giorni asciutti: ${when}.`);
+        add(5, 'cool', 'drop', 'primapioggia', `Prima pioggia dopo ${dryRun} giorni asciutti: ${when}.`);
         break;
       }
     }
@@ -524,13 +527,13 @@ function changeAlerts(bundle) {
   const air = bundle.air && bundle.air.current;
   if (air) {
     if (air.european_aqi >= AQI_BAD) {
-      add(4, 'warm', 'haze', `Aria ${AQI_WORD(air.european_aqi).toLowerCase()} oggi, indice ${round(air.european_aqi)}.`);
+      add(4, 'warm', 'haze', 'aria', `Aria ${AQI_WORD(air.european_aqi).toLowerCase()} oggi, indice ${round(air.european_aqi)}.`);
     }
     const worst = POLLEN
       .map(([k, name, steps]) => ({ name, lvl: pollenLevel(air[k], steps) }))
       .sort((x, y) => y.lvl - x.lvl)[0];
     if (worst && worst.lvl >= 3) {
-      add(4, 'warm', 'haze', `${worst.name}: pollini a livello ${POLLEN_WORDS[worst.lvl]}.`);
+      add(4, 'warm', 'haze', 'pollini', `${worst.name}: pollini a livello ${POLLEN_WORDS[worst.lvl]}.`);
     }
   }
 
